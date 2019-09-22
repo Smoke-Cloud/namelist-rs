@@ -37,6 +37,7 @@ jobs:
       - run:
           name: Build
           command: |
+            yum install -y gcc make
             ~/.cargo/bin/rustup default stable
             ~/.cargo/bin/cargo build --release
       - save_cache:
@@ -79,6 +80,7 @@ jobs:
       - run:
           name: Build Server
           command: |
+            yum install -y gcc make
             ~/.cargo/bin/rustup default stable
             ~/.cargo/bin/cargo test
       - save_cache:
