@@ -3,13 +3,14 @@ extern crate nom;
 // TODO: need to change this to a line-based parse to handle comments etc.
 use nom::{
     branch::alt,
-    bytes::complete::{is_a, tag, take_while, take_while_m_n},
-    character::complete::{alphanumeric1, char, digit1, multispace0, none_of, one_of, space0, anychar, crlf, newline},
-    character::is_digit,
-    combinator::{map, not, opt, peek, value},
-    multi::{count, many0, many1, separated_list, many_till},
+    bytes::complete::is_a,
+    character::complete::{
+        alphanumeric1, anychar, char, crlf, digit1, multispace0, newline, none_of, one_of, space0,
+    },
+    combinator::{opt, peek, value},
+    multi::{many0, many1, many_till, separated_list},
     number::complete::double,
-    sequence::{preceded, terminated},
+    sequence::preceded,
     IResult,
 };
 
@@ -163,14 +164,12 @@ pub fn quoted_string(i: &[u8]) -> IResult<&[u8], String> {
     alt((quoted_string_single, quoted_string_double))(i)
 }
 
-
 pub fn quoted_string_single(i: &[u8]) -> IResult<&[u8], String> {
     let (i, _start_quote) = char('\'')(i)?;
     let (i, s) = many0(none_of("\'"))(i)?;
     let (i, _end_quote) = char('\'')(i)?;
     Ok((i, s.iter().collect()))
 }
-
 
 pub fn quoted_string_double(i: &[u8]) -> IResult<&[u8], String> {
     let (i, _start_quote) = char('\"')(i)?;
@@ -299,7 +298,6 @@ pub fn parse_comma_sep_single(i: &[u8]) -> IResult<&[u8], ()> {
     Ok((i, ()))
 }
 
-
 /// Parses a comma, possibly surrounded by spaces, or possibly EOF
 pub fn parse_comma_sep_no_newline(i: &[u8]) -> IResult<&[u8], ()> {
     let (i, _) = many1(parse_comma_sep_no_newline_single)(i)?;
@@ -313,7 +311,6 @@ pub fn parse_comma_sep_no_newline_single(i: &[u8]) -> IResult<&[u8], ()> {
     let (i, _) = space0(i)?;
     Ok((i, ()))
 }
-
 
 pub fn parse_namelist_file<'a, 'b>(
     namelist_spec: &'a NamelistSpec,
@@ -368,7 +365,19 @@ fn parse_namelist<'a, 'b>(
             let (i, params) =
                 separated_list(parse_comma_sep, |i| parse_parameter(&group_spec, i))(i)?;
             // Additional seperators at the end are fine
-            let (i, _) = many_till(alt((parse_comma_sep_no_newline, value((),crlf), value((),newline))), alt((namelist_start, end_of_file, ampersand_eof, value((),char('/')))))(i)?;
+            let (i, _) = many_till(
+                alt((
+                    parse_comma_sep_no_newline,
+                    value((), crlf),
+                    value((), newline),
+                )),
+                alt((
+                    namelist_start,
+                    end_of_file,
+                    ampersand_eof,
+                    value((), char('/')),
+                )),
+            )(i)?;
             let (i, _) = many_till(anychar, alt((namelist_start, end_of_file)))(i)?;
             let nml = Namelist {
                 name: nml_name,
@@ -397,7 +406,7 @@ fn end_of_file(i: &[u8]) -> IResult<&[u8], ()> {
     }
 }
 
-fn namelist_start( i: &[u8]) -> IResult<&[u8], ()> {
+fn namelist_start(i: &[u8]) -> IResult<&[u8], ()> {
     let (i, _) = opt(char('\r'))(i)?;
     let (i, _) = newline(i)?;
     let (i, _) = space0(i)?;
@@ -497,7 +506,7 @@ fn parse_parameter_value_atom_no_equals(
 
 fn parse_parameter_value_array(
     parameter_spec_atom: ParameterSpecAtom,
-    pos: ParamPos,
+    _pos: ParamPos,
     i: &[u8],
 ) -> IResult<&[u8], Vec<ParameterValueAtom>> {
     let (i, value) = separated_list(parse_comma_sep, |i| {
@@ -730,10 +739,15 @@ mod tests {
     #[test]
     fn float_check() {
         assert_eq!(parse_double(&b"1.1"[..]), Ok((&b""[..], 1.1)));
-        assert_eq!(parse_double(&b"EX"[..]), Err(nom::Err::Error((&b"EX"[..], nom::error::ErrorKind::OneOf))));
+        assert_eq!(
+            parse_double(&b"EX"[..]),
+            Err(nom::Err::Error((&b"EX"[..], nom::error::ErrorKind::OneOf)))
+        );
         assert_eq!(parse_double(&b"123E-02"[..]), Ok((&b""[..], 1.23)));
         assert_eq!(parse_double(&b"123K-01"[..]), Ok((&b"K-01"[..], 123.0)));
-        assert_eq!(parse_double(&b"abc"[..]), Err(nom::Err::Error((&b"abc"[..], nom::error::ErrorKind::OneOf))));
-
+        assert_eq!(
+            parse_double(&b"abc"[..]),
+            Err(nom::Err::Error((&b"abc"[..], nom::error::ErrorKind::OneOf)))
+        );
     }
 }
