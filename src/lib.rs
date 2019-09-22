@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate nom;
+use std::collections::HashMap;
 // TODO: need to change this to a line-based parse to handle comments etc.
 use nom::{
     branch::alt,
@@ -22,7 +23,7 @@ pub struct NamelistFile {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Namelist {
     pub name: String,
-    pub parameters: Vec<Parameter>,
+    pub parameters: HashMap<String, Parameter>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -34,7 +35,15 @@ pub struct Parameter {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParameterValue {
     Atom(ParameterValueAtom),
-    Array(ParamPos, Vec<ParameterValueAtom>),
+    Array(ParameterArray),
+}
+
+/// Currently optimised for very sparse arrays (mainly for simplicity of
+/// implementation).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParameterArray {
+    pub pos: ParamPos,
+    pub values: HashMap<Vec<i64>, ParameterValueAtom>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -379,12 +388,38 @@ fn parse_namelist<'a, 'b>(
                 )),
             )(i)?;
             let (i, _) = many_till(anychar, alt((namelist_start, end_of_file)))(i)?;
+            let mut params_map = HashMap::new();
+            for param in params {
+                // TODO: what about arrays
+                params_map.entry(param.name.clone())
+                    .and_modify(|a| combine_param(a,&param))
+                    .or_insert(param);
+            }
             let nml = Namelist {
                 name: nml_name,
-                parameters: params,
+                parameters: params_map,
             };
             Ok((i, Some(nml)))
         }
+    }
+}
+
+fn combine_param(p1: &mut Parameter, p2: &Parameter) {
+    match (&mut p1.value, &p2.value) {
+        // If it's an atom, just replace it. If we're replacing an atom with an
+        // array, this shouldn't happen, but just overwrite.
+        (ParameterValue::Atom(_), _) => p1.clone_from(p2),
+        // An atom replacing an array should also not happen, but do it.
+        (ParameterValue::Array(_), ParameterValue::Atom(_)) => p1.clone_from(p2),
+        // If it's an array, combine and overwrite.
+        (ParameterValue::Array(ref mut original_array),ParameterValue::Array(ref new_array)) => combine_arrays(original_array, new_array),
+    }
+}
+
+/// Add the elements of a2 to a1, overwriting where necessary
+fn combine_arrays(a1: &mut ParameterArray, a2: &ParameterArray) {
+    for (k,v) in a2.values.iter() {
+        a1.values.insert(k.clone(),v.clone());
     }
 }
 
@@ -439,7 +474,7 @@ pub fn parse_parameter<'a, 'b>(
         ParameterSpec::Array(atom_spec) => {
             let pos = pos.unwrap_or(ParamPos::OneDim(Range::Numberless));
             let (i, array) = parse_parameter_value_array(*atom_spec, pos, i)?;
-            (i, ParameterValue::Array(pos, array))
+            (i, ParameterValue::Array(ParameterArray{pos:pos, values:array}))
         }
     };
     Ok((i, Parameter { name, value }))
@@ -508,11 +543,18 @@ fn parse_parameter_value_array(
     parameter_spec_atom: ParameterSpecAtom,
     _pos: ParamPos,
     i: &[u8],
-) -> IResult<&[u8], Vec<ParameterValueAtom>> {
-    let (i, value) = separated_list(parse_comma_sep, |i| {
+) -> IResult<&[u8], HashMap<Vec<i64>, ParameterValueAtom>> {
+    let (i, values) = separated_list(parse_comma_sep, |i| {
         parse_parameter_value_atom_no_equals(parameter_spec_atom, i)
     })(i)?;
-    Ok((i, value))
+    let mut value_map = HashMap::new();
+    // TODO: doesn't handle complex indexing
+    let mut index = 1_i64;
+    for value in values {
+        value_map.insert(vec![index], value);
+        index += 1;
+    }
+    Ok((i, value_map))
 }
 
 #[cfg(test)]
@@ -638,6 +680,9 @@ mod tests {
             "TEMPERATURES".to_string(),
             ParameterSpec::Array(ParameterSpecAtom::Double),
         );
+        let mut value_map = HashMap::new();
+        value_map.insert(vec![1], 273_f64.into());
+        value_map.insert(vec![2], 274_f64.into());
         assert_eq!(
             parse_parameter(&group_spec, b"TEMPERATURES(1:2)=273, 274"),
             Ok((
@@ -645,8 +690,10 @@ mod tests {
                 Parameter {
                     name: "TEMPERATURES".to_string(),
                     value: ParameterValue::Array(
-                        ParamPos::OneDim(Range::TwoNumber(1_u64, 2_u64)),
-                        vec![273_f64.into(), 274_f64.into()]
+                        ParameterArray {
+                            pos: ParamPos::OneDim(Range::TwoNumber(1_u64, 2_u64)),
+                            values: value_map.clone(),
+                        }
                     )
                 }
             ))
@@ -658,12 +705,16 @@ mod tests {
                 Parameter {
                     name: "TEMPERATURES".to_string(),
                     value: ParameterValue::Array(
-                        ParamPos::OneDim(Range::TwoNumber(1_u64, 2_u64)),
-                        vec![273_f64.into(), 274_f64.into()]
+                        ParameterArray {
+                            pos: ParamPos::OneDim(Range::TwoNumber(1_u64, 2_u64)),
+                            values: value_map
+                        }
                     )
                 }
             ))
         );
+        let mut value_map = HashMap::new();
+        value_map.insert(vec![1], 273_f64.into());
         assert_eq!(
             parse_parameter(&group_spec, b"TEMPERATURES(1)=273"),
             Ok((
@@ -671,8 +722,10 @@ mod tests {
                 Parameter {
                     name: "TEMPERATURES".to_string(),
                     value: ParameterValue::Array(
-                        ParamPos::OneDim(Range::SingleNumber(1_u64)),
-                        vec![273_f64.into()]
+                        ParameterArray {
+                            pos: ParamPos::OneDim(Range::SingleNumber(1_u64)),
+                            values: value_map
+                        }
                     )
                 }
             ))
@@ -695,15 +748,22 @@ mod tests {
         );
         let mut namelist_spec: NamelistSpec = HashMap::new();
         namelist_spec.insert("HEAD".to_string(), group_spec);
-        let expected = Some(Namelist {
-            name: "HEAD".to_string(),
-            parameters: vec![Parameter {
+        let mut value_map = HashMap::new();
+        value_map.insert(vec![1], 273_f64.into());
+        value_map.insert(vec![2], 274_f64.into());
+        let mut params_map = HashMap::new();
+        params_map.insert("TEMPERATURES".to_string(), Parameter {
                 name: "TEMPERATURES".to_string(),
                 value: ParameterValue::Array(
-                    ParamPos::OneDim(Range::TwoNumber(1_u64, 2_u64)),
-                    vec![273_f64.into(), 274_f64.into()],
+                    ParameterArray {
+                        pos: ParamPos::OneDim(Range::TwoNumber(1_u64, 2_u64)),
+                        values: value_map,
+                    }
                 ),
-            }],
+            });
+        let expected = Some(Namelist {
+            name: "HEAD".to_string(),
+            parameters: params_map,
         });
         assert_eq!(
             parse_namelist(&namelist_spec, b"&HEAD TEMPERATURES(1:2)=273, 274 /"),
