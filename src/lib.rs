@@ -4,9 +4,9 @@ extern crate nom;
 use nom::{
     branch::alt,
     bytes::complete::{is_a, tag, take_while, take_while_m_n},
-    character::complete::{alphanumeric1, char, digit1, multispace0, none_of, one_of, space0},
+    character::complete::{alphanumeric1, char, digit1, multispace0, none_of, one_of, space0, anychar, crlf, newline},
     character::is_digit,
-    combinator::{map, not, opt, peek},
+    combinator::{map, not, opt, peek, value},
     multi::{count, many0, many1, separated_list, many_till},
     number::complete::double,
     sequence::{preceded, terminated},
@@ -299,12 +299,34 @@ pub fn parse_comma_sep_single(i: &[u8]) -> IResult<&[u8], ()> {
     Ok((i, ()))
 }
 
+
+/// Parses a comma, possibly surrounded by spaces, or possibly EOF
+pub fn parse_comma_sep_no_newline(i: &[u8]) -> IResult<&[u8], ()> {
+    let (i, _) = many1(parse_comma_sep_no_newline_single)(i)?;
+    Ok((i, ()))
+}
+
+pub fn parse_comma_sep_no_newline_single(i: &[u8]) -> IResult<&[u8], ()> {
+    let (i, _) = peek(one_of(" \t,"))(i)?;
+    let (i, _) = space0(i)?;
+    let (i, _) = opt(char(','))(i)?;
+    let (i, _) = space0(i)?;
+    Ok((i, ()))
+}
+
+
 pub fn parse_namelist_file<'a, 'b>(
     namelist_spec: &'a NamelistSpec,
     i: &'b [u8],
 ) -> IResult<&'b [u8], NamelistFile> {
-    // Skip to the first namelise
-    let (i, _) = many0(none_of("&"))(i)?;
+    // Skip to the first namelist
+    let (i, _) = multispace0(i)?;
+    let (i, c_opt) = opt(peek(char('&')))(i)?;
+    let (i, _) = if !c_opt.is_some() {
+        value((), many_till(anychar, namelist_start))(i)?
+    } else {
+        (i, ())
+    };
     let (i, nmls) = many0(|i| parse_namelist(namelist_spec, i))(i)?;
     if i.len() == 0 {
         Ok((
@@ -338,7 +360,7 @@ fn parse_namelist<'a, 'b>(
     match group_spec_opt {
         None => {
             // skip to the end of an unrecognised namelist, but what if it's the last one? then just fail.
-            let (i, _) = many0(none_of("&"))(i)?;
+            let (i, _) = many_till(anychar, namelist_start)(i)?;
             Ok((i, None))
         }
         Some(group_spec) => {
@@ -346,10 +368,8 @@ fn parse_namelist<'a, 'b>(
             let (i, params) =
                 separated_list(parse_comma_sep, |i| parse_parameter(&group_spec, i))(i)?;
             // Additional seperators at the end are fine
-            let (i, _) = opt(parse_comma_sep)(i)?;
-            let (i, _) = alt((char('/'), peek(char('&'))))(i)?;
-            // TODO: how should we treat comments? Here we just skip to the next &
-            let (i, _) = many0(none_of("&"))(i)?;
+            let (i, _) = many_till(alt((parse_comma_sep_no_newline, value((),crlf), value((),newline))), alt((namelist_start, end_of_file, ampersand_eof, value((),char('/')))))(i)?;
+            let (i, _) = many_till(anychar, alt((namelist_start, end_of_file)))(i)?;
             let nml = Namelist {
                 name: nml_name,
                 parameters: params,
@@ -359,9 +379,28 @@ fn parse_namelist<'a, 'b>(
     }
 }
 
-fn namelist_start( i: &[u8]) -> IResult<&[u8], ()> {
-    let (i, _) = char('\n')(i)?;
+/// Special case that apparently needs handling.
+fn ampersand_eof(i: &[u8]) -> IResult<&[u8], ()> {
+    let (i, _) = char('&')(i)?;
     let (i, _) = multispace0(i)?;
+    end_of_file(i)
+}
+
+fn end_of_file(i: &[u8]) -> IResult<&[u8], ()> {
+    if i.len() == 0 {
+        Ok((i, ()))
+    } else {
+        Err(nom::Err::Error(error_position!(
+            i,
+            nom::error::ErrorKind::Eof
+        )))
+    }
+}
+
+fn namelist_start( i: &[u8]) -> IResult<&[u8], ()> {
+    let (i, _) = opt(char('\r'))(i)?;
+    let (i, _) = newline(i)?;
+    let (i, _) = space0(i)?;
     let (i, _) = peek(char('&'))(i)?;
     Ok((i, ()))
 }
@@ -446,8 +485,6 @@ fn parse_parameter_value_atom_no_equals(
             (i, s.into())
         }
     };
-    // println!("i: {:?}", i);
-    // println!("parsed: {:?}", value);
     let (_, c_opt) = opt(preceded(
         multispace0,
         preceded(opt(param_pos), preceded(multispace0, char('='))),
@@ -463,16 +500,6 @@ fn parse_parameter_value_array(
     pos: ParamPos,
     i: &[u8],
 ) -> IResult<&[u8], Vec<ParameterValueAtom>> {
-    // Get the length of the array we are parsing
-    // let n_values = pos.len();
-    // println!("n_values: {}", n_values);
-    // let (i, value) = count(
-    //     terminated(
-    //         |i| parse_parameter_value_atom(parameter_spec_atom, i),
-    //         parse_comma_sep,
-    //     ),
-    //     n_values,
-    // )(i)?;
     let (i, value) = separated_list(parse_comma_sep, |i| {
         parse_parameter_value_atom_no_equals(parameter_spec_atom, i)
     })(i)?;
@@ -483,7 +510,6 @@ fn parse_parameter_value_array(
 mod tests {
     use super::*;
     use nom;
-    // use nom::
     use nom::error::ErrorKind::NoneOf;
     use std::error::Error;
     // In these tests Ok(remaining, result) is used to make sure that we have
