@@ -32,7 +32,7 @@ jobs:
             fi
       - restore_cache:
           keys:
-            - deps6-cargo-{{ checksum "Cargo.lock" }}
+            - deps6-cargo-{{ checksum "Cargo.toml" }}
             - deps6-cargo
       - run:
           name: Build
@@ -40,7 +40,7 @@ jobs:
             ~/.cargo/bin/rustup default stable
             ~/.cargo/bin/cargo build --release
       - save_cache:
-          key: deps6-cargo-{{ checksum "Cargo.lock" }}
+          key: deps6-cargo-{{ checksum "Cargo.toml" }}
           paths:
             - "target"
             - "~/.cargo"
