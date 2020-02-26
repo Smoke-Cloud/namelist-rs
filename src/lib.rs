@@ -34,8 +34,86 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
     type Error = &'static str;
 
     fn try_from(vals: (String, Vec<Token>)) -> Result<Self, Self::Error> {
+        let mut nml: Self = Self {
+            name: vals.0.clone(),
+            parameters: HashMap::new(),
+        };
+        let tokens = vals.1;
+        let eq_split = EqualsSplitter::new(tokens.into_iter());
+        for p in eq_split {
+            println!("pair: {:?}", p);
+        }
         todo!()
     }
+}
+
+struct EqualsSplitter {
+    tokens: std::iter::Peekable<std::vec::IntoIter<Token>>,
+    prev: Option<Token>,
+}
+
+impl<'a> EqualsSplitter {
+    pub fn new(tokens: std::vec::IntoIter<Token>) -> Self {
+        Self {
+            tokens: tokens.peekable(),
+            prev: None,
+        }
+    }
+}
+
+impl<'a> Iterator for EqualsSplitter {
+    type Item = (Token, Vec<Token>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut param_name = self.prev.clone();
+        self.prev = None;
+        if param_name.is_none() {
+            param_name = self.tokens.next().clone();
+        }
+        if param_name.is_none() || param_name == Some(Token::RightSlash) {
+            return None;
+        }
+        println!("param_name: {:?}", param_name);
+        if let Some(&Token::LeftBracket) = self.tokens.peek() {
+            loop {
+                let t = self.tokens.next().unwrap();
+                if t == Token::RightBracket {
+                    break;
+                }
+            }
+
+        }
+        match self.tokens.next().unwrap() {
+            Token::Equals => {
+                // Now we have the parameter name and equals, keep adding tokens
+                // until we get to the next equals or the end slash
+                let mut param_tokens = Vec::new();
+                loop {
+                    if let Some(&Token::Equals) = self.tokens.peek() {
+                        println!("found equals, current prev: {:?}", self.prev);
+                        // We have found the next equals, so we return what we have.
+                        return Some((param_name.unwrap(), param_tokens));
+                    }
+                    let token = self.tokens.next();
+                    if token.is_none() {
+                        return Some((param_name.unwrap(), param_tokens));
+                    }
+                    let token = token.unwrap();
+                    println!("processing token: {:?}", token);
+                    if let Some(prev) = self.prev.clone() {
+                        self.prev = Some(token.clone());
+                        param_tokens.push(prev);
+                    } else {
+                        self.prev = Some(token.clone());
+                    }
+
+                }
+                return Some((param_name.unwrap(), param_tokens));
+            },
+            e => panic!("expected '=' found {:?}", e),
+        }
+    }
+
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -474,57 +552,6 @@ impl<R: Read> Iterator for NmlParser<R> {
             }
             self.buf.clear();
         }
-    }
-}
-
-pub fn parse_namelist_file_reader<'a, 'b, R: Read>(
-    namelist_spec: &'a NamelistSpec,
-    input: R,
-) { // } -> IResult<&'b [u8], NamelistFile> {
-}
-
-pub fn parse_namelist_reader_iter<'a, 'b, R: Read>(
-    input: R,
-) { // } -> IResult<&'b [u8], NamelistFile> {
-    let mut parser = NmlParser::new(input);
-
-    // Iterate through all the lines, parsing as we go. Each loop iteration is
-    // for a single namespace.
-    loop {
-        // Get a line, trimming whitespace
-        let n = parser.reader.read_line(&mut parser.buf).expect("read_line failed");
-        if n == 0 {
-            break;
-        }
-        let mut line: &str = parser.buf.trim();
-
-        // If the line (after whitespace) begins with an ampersand, it is a new
-        // namelist.
-
-        if line.starts_with("&") {
-            // The first thing we do is finish any namelist we are currently
-            // processing. If there is no current nml we can just continue
-            // starting the new nml.
-            if let Some(current_nml) = parser.current_nml {
-                parser.namelists.push(current_nml.clone());
-            }
-            // First, skip the ampersand character.
-            let i = &line[1..];
-            // Parse the type of NML.
-            let (i, nml_type) = parse_nml_name_str(i).expect("invalid namelist group");
-            // Create an empty namelist to be parsing.
-            parser.current_nml = Some((nml_type, Vec::new()));
-            // Make sure to set the start the start of the tokens.
-            line = i;
-        }
-
-        // Tokenize the rest of the line.
-        let (i, mut tokens) = tokenize_nml(line).unwrap();
-        assert_eq!(i,"");
-        let current_nml = parser.current_nml.as_mut().unwrap();
-        current_nml.1.append(&mut tokens);
-        // If the line does not start with '&' it is either empty or a comment,
-        // so we just continue looping.
     }
 }
 
@@ -1057,10 +1084,13 @@ mod tests {
 
     #[test]
     fn nml_iter() {
+        use std::convert::TryInto;
         let f = std::fs::File::open("room_fire.fds").expect("could not open test file");
         let parser = NmlParser::new(f);
         for nml in parser {
             println!("NML: {}: {:?}", nml.0, nml.1);
+            let namelist: Namelist = nml.try_into().expect("conversion failed");
+            println!("NMLD: {:?}", namelist);
         }
     }
 }
