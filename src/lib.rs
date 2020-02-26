@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::io::{BufRead, BufReader};
 use std::convert::{TryFrom, TryInto};
+use log::debug;
 
 // TODO: need to change this to a line-based parse to handle comments etc.
 use nom::{
@@ -30,7 +31,19 @@ pub struct Namelist {
     pub parameters: HashMap<String, Parameter>,
 }
 
-impl TryFrom<(String, Vec<Token>)> for Namelist {
+#[derive(Clone, Debug, PartialEq)]
+pub struct RawNamelistFile {
+    pub namelists: Vec<RawNamelist>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RawNamelist {
+    pub name: String,
+    pub parameters: HashMap<String, RawParameter>,
+}
+
+
+impl TryFrom<(String, Vec<Token>)> for RawNamelist {
     type Error = &'static str;
 
     fn try_from(vals: (String, Vec<Token>)) -> Result<Self, Self::Error> {
@@ -39,6 +52,7 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
             parameters: HashMap::new(),
         };
         let tokens = vals.1;
+        debug!("tokens: {:?}", tokens);
         let eq_split = EqualsSplitter::new(tokens.into_iter());
         for (param_name, pos_tokens, param_tokens) in eq_split {
             let param_name = if let Token::Str(s) = param_name {
@@ -51,10 +65,15 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
             } else {
                 None
             };
-            println!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
-
+            debug!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
+            let parameter_values: RawParameterValue = param_tokens.try_into().unwrap();
+            nml.parameters.insert(param_name.clone(), RawParameter {
+                name: param_name,
+                pos: pos,
+                value: parameter_values,
+            });
         }
-        todo!()
+        Ok(nml)
     }
 }
 
@@ -84,7 +103,7 @@ impl<'a> Iterator for EqualsSplitter {
         if param_name.is_none() || param_name == Some(Token::RightSlash) {
             return None;
         }
-        println!("param_name: {:?}", param_name);
+        debug!("param_name: {:?}", param_name);
         let mut pos_tokens = Vec::new();
         if let Some(&Token::LeftBracket) = self.tokens.peek() {
             self.tokens.next().unwrap();
@@ -104,17 +123,24 @@ impl<'a> Iterator for EqualsSplitter {
                 // until we get to the next equals or the end slash
                 let mut param_tokens = Vec::new();
                 loop {
-                    if let Some(&Token::Equals) = self.tokens.peek() {
-                        println!("found equals, current prev: {:?}", self.prev);
-                        // We have found the next equals, so we return what we have.
-                        return Some((param_name.unwrap(), pos_tokens, param_tokens));
+                    {
+                        if let Some(some_token) = self.tokens.peek() {
+                            match some_token {
+                                &Token::Equals | Token::LeftBracket => {
+                                    debug!("found equals or left bracket, current prev: {:?}", self.prev);
+                                    // We have found the next equals, so we return what we have.
+                                    return Some((param_name.unwrap(), pos_tokens, param_tokens));
+                                }
+                                _ => (),
+                            }
+                        }
                     }
                     let token = self.tokens.next();
                     if token.is_none() {
                         return Some((param_name.unwrap(), pos_tokens, param_tokens));
                     }
                     let token = token.unwrap();
-                    println!("processing token: {:?}", token);
+                    debug!("processing token: {:?}", token);
                     if let Some(prev) = self.prev.clone() {
                         self.prev = Some(token.clone());
                         param_tokens.push(prev);
@@ -123,7 +149,6 @@ impl<'a> Iterator for EqualsSplitter {
                     }
 
                 }
-                return Some((param_name.unwrap(), pos_tokens, param_tokens));
             },
             e => panic!("expected '=' found {:?}", e),
         }
@@ -143,19 +168,51 @@ pub enum ParameterValue {
     Array(ParameterArray),
 }
 
-// impl TryFrom<Vec<Token>> for ParameterValue  {
-//     type Error = ();
+#[derive(Clone, Debug, PartialEq)]
+pub struct RawParameter {
+    pub name: String,
+    pub pos: Option<ParamPos>,
+    pub value: RawParameterValue,
+}
 
-//     fn try_from(tokens: Vec<Token>) -> Result<Self, Self::Error> {
-//         let sections: Vec<&[Token]> = tokens.split(|x| x == &Token::Comma).collect();
-//         let vals: Vec<Range> = sections.into_iter().map(|x| x.try_into().unwrap()).collect();
-//         match vals.len() {
-//             // We have a single-dimensional value
-//             1 => Ok(ParameterValue::Atom(vals[0].try_into().unwrap())),
-//             _ => todo!(),
-//         }
-//     }
-// }
+#[derive(Clone, Debug, PartialEq)]
+pub enum RawParameterValue {
+    Atom(String),
+    Array(Vec<String>),
+}
+
+impl TryFrom<Vec<Token>> for RawParameterValue {
+    type Error = ();
+
+    fn try_from(tokens: Vec<Token>) -> Result<Self, Self::Error> {
+        match tokens.len() {
+            0 => panic!("no tokens"),
+            // We have a single value
+            1 => Ok(into_parameter_value_atom(tokens[0].clone())),
+            // We have many values
+            _many => {
+                let vals: Vec<String> = tokens.into_iter().filter(|x| x != &Token::Comma).map(|x| match x {
+                    Token::Str(s) => s,
+                    v =>  panic!("invalid array value: {:?}", v),
+                }).collect();
+                Ok(RawParameterValue::Array(vals))
+            },
+        }
+    }
+}
+
+fn into_parameter_value_atom(token: Token) -> RawParameterValue {
+    match token {
+        Token::Str(s) => RawParameterValue::Atom(s),
+        _ => panic!("invalid atom value"),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RawParameterArray {
+    pub pos: ParamPos,
+    pub values: HashMap<Vec<i64>, String>,
+}
 
 /// Currently optimised for very sparse arrays (mainly for simplicity of
 /// implementation).
@@ -534,7 +591,7 @@ pub struct NmlParser<R> {
     // in_nml: bool,
     current_nml: Option<(String, Vec<Token>)>,
     buf: String,
-    namelists: Vec<(String, Vec<Token>)>,
+    // namelists: Vec<(String, Vec<Token>)>,
     // We are on the last iteration.
     last: bool,
 }
@@ -543,10 +600,8 @@ impl<R: Read> NmlParser<R> {
     pub fn new(input: R) -> Self {
         NmlParser {
             reader: BufReader::new(input),
-            // in_nml: false,
             current_nml: None,
             buf: String::new(),
-            namelists: Vec::new(),
             last: false,
         }
     }
@@ -575,7 +630,7 @@ impl<R: Read> Iterator for NmlParser<R> {
                 }
             }
             let mut line: &str = self.buf.trim();
-            // println!("line: {}", line);
+            // debug!("line: {}", line);
             // If the line (after whitespace) begins with an ampersand, it is a new
             // namelist.
 
@@ -824,7 +879,7 @@ fn parse_parameter_value_atom_no_equals(
             (i, s.into())
         }
         ParameterSpecAtom::Double => {
-            // println!("parsing double from: {:?}", i);
+            // debug!("parsing double from: {:?}", i);
             let (i, s) = parse_double(i)?;
             (i, s.into())
         }
@@ -870,7 +925,7 @@ mod tests {
     use super::*;
     use nom;
     use nom::error::ErrorKind::NoneOf;
-    use std::error::Error;
+    // use std::error::Error;
     // In these tests Ok(remaining, result) is used to make sure that we have
     // consumed the input we expect to consume.
 
@@ -967,7 +1022,7 @@ mod tests {
 
     #[test]
     fn range_examples() {
-        use std::collections::HashMap;
+        // use std::collections::HashMap;
         assert_eq!(
             param_pos(b"(1:2)"),
             Ok((&[][..], ParamPos::OneDim(Range::TwoNumber(1_u64, 2_u64))))
@@ -1148,7 +1203,7 @@ mod tests {
         let parser = NmlParser::new(f);
         for nml in parser {
             println!("NML: {}: {:?}", nml.0, nml.1);
-            let namelist: Namelist = nml.try_into().expect("conversion failed");
+            let namelist: RawNamelist = nml.try_into().expect("conversion failed");
             println!("NMLD: {:?}", namelist);
         }
     }
