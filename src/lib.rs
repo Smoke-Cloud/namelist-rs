@@ -1,22 +1,18 @@
-#[macro_use]
-extern crate nom;
 use std::collections::HashMap;
 use std::io::Read;
 use std::io::{BufRead, BufReader};
 use std::convert::{TryFrom, TryInto};
 use log::debug;
 
-// TODO: need to change this to a line-based parse to handle comments etc.
 use nom::{
     branch::alt,
     bytes::complete::is_a,
     character::complete::{
-        alphanumeric1, anychar, char, crlf, digit1, multispace0, newline, none_of, one_of, space0,
+        alphanumeric1, anychar, char, digit1, none_of, one_of,
     },
-    combinator::{opt, peek, value},
-    multi::{many0, many1, many_till, separated_list},
+    combinator::{opt, peek},
+    multi::{many0, many1},
     number::complete::double,
-    sequence::preceded,
     IResult,
 };
 
@@ -31,19 +27,7 @@ pub struct Namelist {
     pub parameters: HashMap<String, Parameter>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct RawNamelistFile {
-    pub namelists: Vec<RawNamelist>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct RawNamelist {
-    pub name: String,
-    pub parameters: HashMap<String, RawParameter>,
-}
-
-
-impl TryFrom<(String, Vec<Token>)> for RawNamelist {
+impl TryFrom<(String, Vec<Token>)> for Namelist {
     type Error = &'static str;
 
     fn try_from(vals: (String, Vec<Token>)) -> Result<Self, Self::Error> {
@@ -66,8 +50,8 @@ impl TryFrom<(String, Vec<Token>)> for RawNamelist {
                 None
             };
             debug!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
-            let parameter_values: RawParameterValue = param_tokens.try_into().unwrap();
-            nml.parameters.insert(param_name.clone(), RawParameter {
+            let parameter_values: ParameterValue = param_tokens.try_into().unwrap();
+            nml.parameters.insert(param_name.clone(), Parameter {
                 name: param_name,
                 pos: pos,
                 value: parameter_values,
@@ -159,29 +143,17 @@ impl<'a> Iterator for EqualsSplitter {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Parameter {
     pub name: String,
+    pub pos: Option<ParamPos>,
     pub value: ParameterValue,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParameterValue {
-    Atom(ParameterValueAtom),
-    Array(ParameterArray),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct RawParameter {
-    pub name: String,
-    pub pos: Option<ParamPos>,
-    pub value: RawParameterValue,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum RawParameterValue {
     Atom(String),
     Array(Vec<String>),
 }
 
-impl TryFrom<Vec<Token>> for RawParameterValue {
+impl TryFrom<Vec<Token>> for ParameterValue {
     type Error = ();
 
     fn try_from(tokens: Vec<Token>) -> Result<Self, Self::Error> {
@@ -195,87 +167,23 @@ impl TryFrom<Vec<Token>> for RawParameterValue {
                     Token::Str(s) => s,
                     v =>  panic!("invalid array value: {:?}", v),
                 }).collect();
-                Ok(RawParameterValue::Array(vals))
+                Ok(ParameterValue::Array(vals))
             },
         }
     }
 }
 
-fn into_parameter_value_atom(token: Token) -> RawParameterValue {
+fn into_parameter_value_atom(token: Token) -> ParameterValue {
     match token {
-        Token::Str(s) => RawParameterValue::Atom(s),
+        Token::Str(s) => ParameterValue::Atom(s),
         _ => panic!("invalid atom value"),
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RawParameterArray {
-    pub pos: ParamPos,
-    pub values: HashMap<Vec<i64>, String>,
-}
-
-/// Currently optimised for very sparse arrays (mainly for simplicity of
-/// implementation).
-#[derive(Clone, Debug, PartialEq)]
 pub struct ParameterArray {
     pub pos: ParamPos,
-    pub values: HashMap<Vec<i64>, ParameterValueAtom>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum ParameterValueAtom {
-    String(String),
-    Double(f64),
-    Int(i64),
-    Bool(bool),
-}
-
-impl From<String> for ParameterValue {
-    fn from(val: String) -> Self {
-        ParameterValue::Atom(val.into())
-    }
-}
-
-impl From<f64> for ParameterValue {
-    fn from(val: f64) -> Self {
-        ParameterValue::Atom(val.into())
-    }
-}
-
-impl From<i64> for ParameterValue {
-    fn from(val: i64) -> Self {
-        ParameterValue::Atom(val.into())
-    }
-}
-
-impl From<bool> for ParameterValue {
-    fn from(val: bool) -> Self {
-        ParameterValue::Atom(val.into())
-    }
-}
-
-impl From<String> for ParameterValueAtom {
-    fn from(val: String) -> Self {
-        ParameterValueAtom::String(val)
-    }
-}
-
-impl From<f64> for ParameterValueAtom {
-    fn from(val: f64) -> Self {
-        ParameterValueAtom::Double(val)
-    }
-}
-
-impl From<i64> for ParameterValueAtom {
-    fn from(val: i64) -> Self {
-        ParameterValueAtom::Int(val)
-    }
-}
-
-impl From<bool> for ParameterValueAtom {
-    fn from(val: bool) -> Self {
-        ParameterValueAtom::Bool(val)
-    }
+    pub values: HashMap<Vec<i64>, String>,
 }
 
 /// A boolean is either an F or T (case insensitive) followed by any series of
@@ -390,24 +298,6 @@ pub fn quoted_string_double(i: &[u8]) -> IResult<&[u8], String> {
     Ok((i, s.iter().collect()))
 }
 
-// TODO: make sure this is case insensitive
-pub type GroupSpec = std::collections::HashMap<String, ParameterSpec>;
-pub type NamelistSpec = std::collections::HashMap<String, GroupSpec>;
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum ParameterSpec {
-    Atom(ParameterSpecAtom),
-    Array(ParameterSpecAtom),
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum ParameterSpecAtom {
-    String,
-    Double,
-    Int,
-    Bool,
-}
-
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ParamPos {
     OneDim(Range),
@@ -476,122 +366,11 @@ impl TryFrom<&[Token]> for Range {
     }
 }
 
-// TODO: Technically arrays can have more dimensions.
-// Can be either one or two range values
-pub fn param_pos(i: &[u8]) -> IResult<&[u8], ParamPos> {
-    let (i, _start_paren) = char('(')(i)?;
-    let (i, r1) = parse_range(i)?;
-    let (i, r2_opt) = opt(preceded(parse_comma_sep, parse_range))(i)?;
-    let (i, _end_paren) = char(')')(i)?;
-    let pos = match r2_opt {
-        Some(r2) => ParamPos::TwoDim(r1, r2),
-        None => ParamPos::OneDim(r1),
-    };
-    Ok((i, pos))
-}
-
-/// Parses values in the form of "x" or "x:y" where x and y are integers, e.g.
-/// "1:2", or possibly just ":".
-pub fn parse_range(i: &[u8]) -> IResult<&[u8], Range> {
-    alt((
-        parse_twonumber_range,
-        parse_singlenumber_range,
-        parse_numberless_range,
-    ))(i)
-}
-
-/// i.e. ":"
-fn parse_numberless_range(i: &[u8]) -> IResult<&[u8], Range> {
-    let (i, _) = char(':')(i)?;
-    Ok((i, Range::Numberless))
-}
-
-/// i.e. "5"
-fn parse_singlenumber_range(i: &[u8]) -> IResult<&[u8], Range> {
-    // TODO: needs to be a natural greater than 0
-    let (i, s1) = parse_uint(i)?;
-    Ok((i, Range::SingleNumber(s1)))
-}
-
-/// i.e. "3:5"
-fn parse_twonumber_range(i: &[u8]) -> IResult<&[u8], Range> {
-    // TODO: needs to be a natural greater than 0
-    let (i, _) = multispace0(i)?;
-    let (i, s1) = parse_uint(i)?;
-    let (i, _) = multispace0(i)?;
-    let (i, _) = char(':')(i)?;
-    let (i, _) = multispace0(i)?;
-    let (i, s2) = parse_uint(i)?;
-    let (i, _) = multispace0(i)?;
-    Ok((i, Range::TwoNumber(s1, s2)))
-}
-
-/// Parses a comma, possibly surrounded by spaces, or possibly EOF
-pub fn parse_comma_sep(i: &[u8]) -> IResult<&[u8], ()> {
-    let (i, _) = many1(parse_comma_sep_single)(i)?;
-    Ok((i, ()))
-}
-
-pub fn parse_comma_sep_single(i: &[u8]) -> IResult<&[u8], ()> {
-    let (i, _) = peek(one_of(" \r\n\t,"))(i)?;
-    let (i, _) = multispace0(i)?;
-    let (i, _) = opt(char(','))(i)?;
-    let (i, _) = multispace0(i)?;
-    Ok((i, ()))
-}
-
-/// Parses a comma, possibly surrounded by spaces, or possibly EOF
-pub fn parse_comma_sep_no_newline(i: &[u8]) -> IResult<&[u8], ()> {
-    let (i, _) = many1(parse_comma_sep_no_newline_single)(i)?;
-    Ok((i, ()))
-}
-
-pub fn parse_comma_sep_no_newline_single(i: &[u8]) -> IResult<&[u8], ()> {
-    let (i, _) = peek(one_of(" \t,"))(i)?;
-    let (i, _) = space0(i)?;
-    let (i, _) = opt(char(','))(i)?;
-    let (i, _) = space0(i)?;
-    Ok((i, ()))
-}
-
-pub fn parse_namelist_file<'a, 'b>(
-    namelist_spec: &'a NamelistSpec,
-    i: &'b [u8],
-) -> IResult<&'b [u8], NamelistFile> {
-    // Skip to the first namelist
-    let (i, _) = multispace0(i)?;
-    let (i, c_opt) = opt(peek(char('&')))(i)?;
-    let (i, _) = if !c_opt.is_some() {
-        value((), many_till(anychar, namelist_start))(i)?
-    } else {
-        (i, ())
-    };
-    let (i, nmls) = many0(|i| parse_namelist(namelist_spec, i))(i)?;
-    if i.len() == 0 {
-        Ok((
-            i,
-            NamelistFile {
-                namelists: nmls
-                    .into_iter()
-                    .filter(|s| s.is_some())
-                    .map(|s| s.unwrap())
-                    .collect(),
-            },
-        ))
-    } else {
-        Err(nom::Err::Error(error_position!(
-            i,
-            nom::error::ErrorKind::Eof
-        )))
-    }
-}
-
+#[derive(Debug)]
 pub struct NmlParser<R> {
     reader: BufReader<R>,
-    // in_nml: bool,
     current_nml: Option<(String, Vec<Token>)>,
     buf: String,
-    // namelists: Vec<(String, Vec<Token>)>,
     // We are on the last iteration.
     last: bool,
 }
@@ -608,7 +387,7 @@ impl<R: Read> NmlParser<R> {
 }
 
 impl<R: Read> Iterator for NmlParser<R> {
-    type Item = RawNamelist;
+    type Item = Namelist;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.last == true {
@@ -686,6 +465,7 @@ pub fn tokenize_nml(i: &str) -> IResult<&str, Vec<Token>> {
     many0(parse_token)(i)
 }
 
+// TODO: add source location
 pub fn parse_token(i: &str) -> IResult<&str, Token> {
     let i = i.trim();
     let (i, first_char) = anychar(i)?;
@@ -714,210 +494,6 @@ pub fn parse_token(i: &str) -> IResult<&str, Token> {
             Ok((i, Token::Str(string)))
         }
     }
-}
-
-// TODO: add source location
-fn parse_namelist<'a, 'b>(
-    namelist_spec: &'a NamelistSpec,
-    i: &'b [u8],
-) -> IResult<&'b [u8], Option<Namelist>> {
-    let (i, _) = char('&')(i)?;
-    let (i, nml_name) = parse_nml_name(i)?;
-    let group_spec_opt = namelist_spec.get(&nml_name);
-    // TODO: namelists only start when there is only whitespace between the
-    // start of the line and the ampersand.
-    match group_spec_opt {
-        None => {
-            // skip to the end of an unrecognised namelist, but what if it's the last one? then just fail.
-            let (i, _) = many_till(anychar, namelist_start)(i)?;
-            Ok((i, None))
-        }
-        Some(group_spec) => {
-            let (i, _) = multispace0(i)?;
-            let (i, params) =
-                separated_list(parse_comma_sep, |i| parse_parameter(&group_spec, i))(i)?;
-            // Additional seperators at the end are fine
-            let (i, _) = many_till(
-                alt((
-                    parse_comma_sep_no_newline,
-                    value((), crlf),
-                    value((), newline),
-                )),
-                alt((
-                    namelist_start,
-                    end_of_file,
-                    ampersand_eof,
-                    value((), char('/')),
-                )),
-            )(i)?;
-            let (i, _) = many_till(anychar, alt((namelist_start, end_of_file)))(i)?;
-            let mut params_map = HashMap::new();
-            for param in params {
-                // TODO: what about arrays
-                params_map.entry(param.name.clone())
-                    .and_modify(|a| combine_param(a,&param))
-                    .or_insert(param);
-            }
-            let nml = Namelist {
-                name: nml_name,
-                parameters: params_map,
-            };
-            Ok((i, Some(nml)))
-        }
-    }
-}
-
-fn combine_param(p1: &mut Parameter, p2: &Parameter) {
-    match (&mut p1.value, &p2.value) {
-        // If it's an atom, just replace it. If we're replacing an atom with an
-        // array, this shouldn't happen, but just overwrite.
-        (ParameterValue::Atom(_), _) => p1.clone_from(p2),
-        // An atom replacing an array should also not happen, but do it.
-        (ParameterValue::Array(_), ParameterValue::Atom(_)) => p1.clone_from(p2),
-        // If it's an array, combine and overwrite.
-        (ParameterValue::Array(ref mut original_array),ParameterValue::Array(ref new_array)) => combine_arrays(original_array, new_array),
-    }
-}
-
-/// Add the elements of a2 to a1, overwriting where necessary
-fn combine_arrays(a1: &mut ParameterArray, a2: &ParameterArray) {
-    for (k,v) in a2.values.iter() {
-        a1.values.insert(k.clone(),v.clone());
-    }
-}
-
-/// Special case that apparently needs handling.
-fn ampersand_eof(i: &[u8]) -> IResult<&[u8], ()> {
-    let (i, _) = char('&')(i)?;
-    let (i, _) = multispace0(i)?;
-    end_of_file(i)
-}
-
-fn end_of_file(i: &[u8]) -> IResult<&[u8], ()> {
-    if i.len() == 0 {
-        Ok((i, ()))
-    } else {
-        Err(nom::Err::Error(error_position!(
-            i,
-            nom::error::ErrorKind::Eof
-        )))
-    }
-}
-
-fn namelist_start(i: &[u8]) -> IResult<&[u8], ()> {
-    let (i, _) = opt(char('\r'))(i)?;
-    let (i, _) = newline(i)?;
-    let (i, _) = space0(i)?;
-    let (i, _) = peek(char('&'))(i)?;
-    Ok((i, ()))
-}
-
-pub fn parse_parameter<'a, 'b>(
-    group_spec: &'a GroupSpec,
-    i: &'b [u8],
-) -> IResult<&'b [u8], Parameter> {
-    let (i, name) = parameter_name(i)?;
-    let name = name.to_uppercase();
-    // TODO: we need to make sure the group spec is upper case to
-    let parameter_spec =
-        group_spec
-            .get(&name)
-            .expect(&format!("no spec for [{}]: \"{}\"", name.len(), name));
-    // TODO: positional parameters
-    let (i, _) = multispace0(i)?;
-    let (i, pos) = opt(param_pos)(i)?;
-    let (i, _) = multispace0(i)?;
-    let (i, _) = char('=')(i)?;
-    let (i, _) = multispace0(i)?;
-    let (i, value) = match parameter_spec {
-        ParameterSpec::Atom(atom_spec) => {
-            let (i, atom) = parse_parameter_value_atom(*atom_spec, i)?;
-            (i, ParameterValue::Atom(atom))
-        }
-        ParameterSpec::Array(atom_spec) => {
-            let pos = pos.unwrap_or(ParamPos::OneDim(Range::Numberless));
-            let (i, array) = parse_parameter_value_array(*atom_spec, pos, i)?;
-            (i, ParameterValue::Array(ParameterArray{pos:pos, values:array}))
-        }
-    };
-    Ok((i, Parameter { name, value }))
-}
-
-fn parse_parameter_value_atom(
-    parameter_spec_atom: ParameterSpecAtom,
-    i: &[u8],
-) -> IResult<&[u8], ParameterValueAtom> {
-    let (i, value) = match parameter_spec_atom {
-        ParameterSpecAtom::String => {
-            let (i, s) = quoted_string(i)?;
-            (i, s.into())
-        }
-        ParameterSpecAtom::Double => {
-            let (i, s) = parse_double(i)?;
-            (i, s.into())
-        }
-        ParameterSpecAtom::Int => {
-            let (i, s) = parse_int(i)?;
-            (i, s.into())
-        }
-        ParameterSpecAtom::Bool => {
-            let (i, s) = boolean(i)?;
-            (i, s.into())
-        }
-    };
-    Ok((i, value))
-}
-
-/// If the atom is followed by an '=' then we should bail
-fn parse_parameter_value_atom_no_equals(
-    parameter_spec_atom: ParameterSpecAtom,
-    i: &[u8],
-) -> IResult<&[u8], ParameterValueAtom> {
-    let (i, value) = match parameter_spec_atom {
-        ParameterSpecAtom::String => {
-            let (i, s) = quoted_string(i)?;
-            (i, s.into())
-        }
-        ParameterSpecAtom::Double => {
-            // debug!("parsing double from: {:?}", i);
-            let (i, s) = parse_double(i)?;
-            (i, s.into())
-        }
-        ParameterSpecAtom::Int => {
-            let (i, s) = parse_int(i)?;
-            (i, s.into())
-        }
-        ParameterSpecAtom::Bool => {
-            let (i, s) = boolean(i)?;
-            (i, s.into())
-        }
-    };
-    let (_, c_opt) = opt(preceded(
-        multispace0,
-        preceded(opt(param_pos), preceded(multispace0, char('='))),
-    ))(i)?;
-    match c_opt {
-        Some(_c) => Err(nom::Err::Error((i, nom::error::ErrorKind::Char))), //nom::error::VerboseErrorKind::Char(c)))),
-        None => Ok((i, value)),
-    }
-}
-
-fn parse_parameter_value_array(
-    parameter_spec_atom: ParameterSpecAtom,
-    _pos: ParamPos,
-    i: &[u8],
-) -> IResult<&[u8], HashMap<Vec<i64>, ParameterValueAtom>> {
-    let (i, values) = separated_list(parse_comma_sep, |i| {
-        parse_parameter_value_atom_no_equals(parameter_spec_atom, i)
-    })(i)?;
-    let mut value_map = HashMap::new();
-    // TODO: doesn't handle complex indexing
-    let mut index = 1_i64;
-    for value in values {
-        value_map.insert(vec![index], value);
-        index += 1;
-    }
-    Ok((i, value_map))
 }
 
 #[cfg(test)]
@@ -991,146 +567,6 @@ mod tests {
         assert_eq!(
             parameter_name(b"2speed"),
             Err(nom::Err::Error((b"2speed".as_ref(), NoneOf)))
-        );
-    }
-
-    #[test]
-    fn parameter_examples() {
-        use std::collections::HashMap;
-        let mut group_spec = HashMap::new();
-        group_spec.insert(
-            "TEMPERATURE".to_string(),
-            ParameterSpec::Atom(ParameterSpecAtom::Double),
-        );
-        assert_eq!(
-            parse_parameter(&group_spec, b"TEMPERATURE=273"),
-            Ok((
-                &[][..],
-                Parameter {
-                    name: "TEMPERATURE".to_string(),
-                    value: 273_f64.into()
-                }
-            ))
-        );
-        // assert_eq!(boolean(b"T"), Ok((&[][..], true)));
-        // assert_eq!(boolean(b"f"), Ok((&[][..], false)));
-        // assert_eq!(boolean(b"F"), Ok((&[][..], false)));
-        // assert_eq!(boolean(b".FALSE."), Ok((&[][..], false)));
-        // assert_eq!(boolean(b".TRUE."), Ok((&[][..], true)));
-        // assert_eq!(boolean(b".TRUE., "), Ok((b", ".as_ref(), true)));
-    }
-
-    #[test]
-    fn range_examples() {
-        // use std::collections::HashMap;
-        assert_eq!(
-            param_pos(b"(1:2)"),
-            Ok((&[][..], ParamPos::OneDim(Range::TwoNumber(1_u64, 2_u64))))
-        );
-        // assert_eq!(boolean(b"T"), Ok((&[][..], true)));
-        // assert_eq!(boolean(b"f"), Ok((&[][..], false)));
-        // assert_eq!(boolean(b"F"), Ok((&[][..], false)));
-        // assert_eq!(boolean(b".FALSE."), Ok((&[][..], false)));
-        // assert_eq!(boolean(b".TRUE."), Ok((&[][..], true)));
-        // assert_eq!(boolean(b".TRUE., "), Ok((b", ".as_ref(), true)));
-    }
-
-    #[test]
-    fn array_examples() {
-        use std::collections::HashMap;
-        let mut group_spec = HashMap::new();
-        group_spec.insert(
-            "TEMPERATURES".to_string(),
-            ParameterSpec::Array(ParameterSpecAtom::Double),
-        );
-        let mut value_map = HashMap::new();
-        value_map.insert(vec![1], 273_f64.into());
-        value_map.insert(vec![2], 274_f64.into());
-        assert_eq!(
-            parse_parameter(&group_spec, b"TEMPERATURES(1:2)=273, 274"),
-            Ok((
-                &[][..],
-                Parameter {
-                    name: "TEMPERATURES".to_string(),
-                    value: ParameterValue::Array(
-                        ParameterArray {
-                            pos: ParamPos::OneDim(Range::TwoNumber(1_u64, 2_u64)),
-                            values: value_map.clone(),
-                        }
-                    )
-                }
-            ))
-        );
-        assert_eq!(
-            parse_parameter(&group_spec, b"TEMPERATURES(1:2)=273 274"),
-            Ok((
-                &[][..],
-                Parameter {
-                    name: "TEMPERATURES".to_string(),
-                    value: ParameterValue::Array(
-                        ParameterArray {
-                            pos: ParamPos::OneDim(Range::TwoNumber(1_u64, 2_u64)),
-                            values: value_map
-                        }
-                    )
-                }
-            ))
-        );
-        let mut value_map = HashMap::new();
-        value_map.insert(vec![1], 273_f64.into());
-        assert_eq!(
-            parse_parameter(&group_spec, b"TEMPERATURES(1)=273"),
-            Ok((
-                &[][..],
-                Parameter {
-                    name: "TEMPERATURES".to_string(),
-                    value: ParameterValue::Array(
-                        ParameterArray {
-                            pos: ParamPos::OneDim(Range::SingleNumber(1_u64)),
-                            values: value_map
-                        }
-                    )
-                }
-            ))
-        );
-        // assert_eq!(boolean(b"T"), Ok((&[][..], true)));
-        // assert_eq!(boolean(b"f"), Ok((&[][..], false)));
-        // assert_eq!(boolean(b"F"), Ok((&[][..], false)));
-        // assert_eq!(boolean(b".FALSE."), Ok((&[][..], false)));
-        // assert_eq!(boolean(b".TRUE."), Ok((&[][..], true)));
-        // assert_eq!(boolean(b".TRUE., "), Ok((b", ".as_ref(), true)));
-    }
-
-    #[test]
-    fn namelist_examples() {
-        use std::collections::HashMap;
-        let mut group_spec = HashMap::new();
-        group_spec.insert(
-            "TEMPERATURES".to_string(),
-            ParameterSpec::Array(ParameterSpecAtom::Double),
-        );
-        let mut namelist_spec: NamelistSpec = HashMap::new();
-        namelist_spec.insert("HEAD".to_string(), group_spec);
-        let mut value_map = HashMap::new();
-        value_map.insert(vec![1], 273_f64.into());
-        value_map.insert(vec![2], 274_f64.into());
-        let mut params_map = HashMap::new();
-        params_map.insert("TEMPERATURES".to_string(), Parameter {
-                name: "TEMPERATURES".to_string(),
-                value: ParameterValue::Array(
-                    ParameterArray {
-                        pos: ParamPos::OneDim(Range::TwoNumber(1_u64, 2_u64)),
-                        values: value_map,
-                    }
-                ),
-            });
-        let expected = Some(Namelist {
-            name: "HEAD".to_string(),
-            parameters: params_map,
-        });
-        assert_eq!(
-            parse_namelist(&namelist_spec, b"&HEAD TEMPERATURES(1:2)=273, 274 /"),
-            Ok((&[][..], expected))
         );
     }
 
