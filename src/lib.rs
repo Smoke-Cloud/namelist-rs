@@ -1,6 +1,10 @@
 #[macro_use]
 extern crate nom;
 use std::collections::HashMap;
+use std::io::Read;
+use std::io::{BufRead, BufReader};
+use std::convert::TryFrom;
+
 // TODO: need to change this to a line-based parse to handle comments etc.
 use nom::{
     branch::alt,
@@ -24,6 +28,14 @@ pub struct NamelistFile {
 pub struct Namelist {
     pub name: String,
     pub parameters: HashMap<String, Parameter>,
+}
+
+impl TryFrom<(String, Vec<Token>)> for Namelist {
+    type Error = &'static str;
+
+    fn try_from(vals: (String, Vec<Token>)) -> Result<Self, Self::Error> {
+        todo!()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -103,7 +115,7 @@ impl From<bool> for ParameterValueAtom {
 }
 
 /// A boolean is either an F or T (case insensitive) followed by any series of
-/// non-whitespace characters. It may also pre prepended by a period.
+/// non-whitespace characters. It may also prepended by a period.
 pub fn boolean(i: &[u8]) -> IResult<&[u8], bool> {
     let (i, _) = opt(char('.'))(i)?;
     let (i, cs) = is_a("tTfF")(i)?;
@@ -169,6 +181,33 @@ pub fn parse_nml_name(i: &[u8]) -> IResult<&[u8], String> {
     ))
 }
 
+pub fn parse_nml_name_any<T>(i: T) -> IResult<T, String>
+where
+    T: nom::InputTakeAtPosition + nom::InputIter,
+    <T as nom::InputTakeAtPosition>::Item: nom::AsChar,
+    <T as nom::InputIter>::Item: nom::AsChar + Copy,
+    {
+    use nom::AsChar;
+    let (i, name): (T,T) = alphanumeric1(i)?;
+    let mut v: Vec<char> = Vec::new();
+    for c in name.iter_elements() {
+        v.push(c.as_char())
+    }
+    let name: String = v.into_iter().collect();
+    Ok((
+        i,
+        name
+    ))
+}
+
+pub fn parse_nml_name_str(i: &str) -> IResult<&str, String> {
+    let (i, name) = alphanumeric1(i)?;
+    Ok((
+        i,
+        String::from(name)
+    ))
+}
+
 pub fn quoted_string(i: &[u8]) -> IResult<&[u8], String> {
     alt((quoted_string_single, quoted_string_double))(i)
 }
@@ -219,7 +258,7 @@ impl ParamPos {
             TwoDim(r1, Range::SingleNumber(_)) => r1.len(),
             TwoDim(Range::SingleNumber(_), r2) => r2.len(),
             TwoDim(_, _) => panic!(
-                "In a two-dimensionsal position parameter, one dimensions must be a single number"
+                "In a two-dimensional position parameter, one dimensions must be a single number"
             ),
         }
     }
@@ -350,6 +389,189 @@ pub fn parse_namelist_file<'a, 'b>(
             i,
             nom::error::ErrorKind::Eof
         )))
+    }
+}
+
+pub struct NmlParser<R> {
+    reader: BufReader<R>,
+    // in_nml: bool,
+    current_nml: Option<(String, Vec<Token>)>,
+    buf: String,
+    namelists: Vec<(String, Vec<Token>)>,
+    // We are on the last iteration.
+    last: bool,
+}
+
+impl<R: Read> NmlParser<R> {
+    pub fn new(input: R) -> Self {
+        NmlParser {
+            reader: BufReader::new(input),
+            // in_nml: false,
+            current_nml: None,
+            buf: String::new(),
+            namelists: Vec::new(),
+            last: false,
+        }
+    }
+}
+
+impl<R: Read> Iterator for NmlParser<R> {
+    type Item = (String, Vec<Token>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.last == true {
+            return None;
+        }
+        // Iterate through all the lines, parsing as we go. Each loop iteration is
+        // for a single namespace.
+        loop {
+            // If we already have a line in the buffer, use that, else get a new
+            // one.
+            if self.buf.len() == 0 {
+                // Get a new line.
+                let n = self.reader.read_line(&mut self.buf).expect("read_line failed");
+                if n == 0 {
+                    // There is no data left. If we have a current nml, we
+                    // return that, otherwise we just return None.
+                    self.last = true;
+                    break self.current_nml.clone();
+                }
+            }
+            let mut line: &str = self.buf.trim();
+            // println!("line: {}", line);
+            // If the line (after whitespace) begins with an ampersand, it is a new
+            // namelist.
+
+            if line.starts_with("&") {
+                // If we currently have an nml we are working on, return that.
+                // We need to make sure that on the next iteration we are in the
+                // right position to get the next nml. This includes setting the
+                // "current_nml" buffer to None, and leaving the line buffer
+                // as-is.
+                if self.current_nml.is_some() {
+                    let current_nml = self.current_nml.clone().expect("no current nml");
+                    self.current_nml = None;
+                    break Some(current_nml);
+                }
+                // First, skip the ampersand character.
+                let i = &line[1..];
+                // Parse the type of NML.
+                let (i, nml_type) = parse_nml_name_str(i).expect("invalid namelist group");
+                // Create an empty namelist to be parsing.
+                self.current_nml = Some((nml_type, Vec::new()));
+                // Make sure to set the start the start of the tokens.
+                line = i;
+            }
+
+            if self.current_nml.is_some() {
+                // Tokenize the rest of the line.
+                let (i, mut tokens) = tokenize_nml(line).expect("could not tokenize");
+                assert_eq!(i,"");
+                let current_nml = self.current_nml.as_mut().expect("could not add to no current nml");
+                current_nml.1.append(&mut tokens);
+                // If the line does not start with '&' it is either empty or a comment,
+                // so we just continue looping.
+            }
+            self.buf.clear();
+        }
+    }
+}
+
+pub fn parse_namelist_file_reader<'a, 'b, R: Read>(
+    namelist_spec: &'a NamelistSpec,
+    input: R,
+) { // } -> IResult<&'b [u8], NamelistFile> {
+}
+
+pub fn parse_namelist_reader_iter<'a, 'b, R: Read>(
+    input: R,
+) { // } -> IResult<&'b [u8], NamelistFile> {
+    let mut parser = NmlParser::new(input);
+
+    // Iterate through all the lines, parsing as we go. Each loop iteration is
+    // for a single namespace.
+    loop {
+        // Get a line, trimming whitespace
+        let n = parser.reader.read_line(&mut parser.buf).expect("read_line failed");
+        if n == 0 {
+            break;
+        }
+        let mut line: &str = parser.buf.trim();
+
+        // If the line (after whitespace) begins with an ampersand, it is a new
+        // namelist.
+
+        if line.starts_with("&") {
+            // The first thing we do is finish any namelist we are currently
+            // processing. If there is no current nml we can just continue
+            // starting the new nml.
+            if let Some(current_nml) = parser.current_nml {
+                parser.namelists.push(current_nml.clone());
+            }
+            // First, skip the ampersand character.
+            let i = &line[1..];
+            // Parse the type of NML.
+            let (i, nml_type) = parse_nml_name_str(i).expect("invalid namelist group");
+            // Create an empty namelist to be parsing.
+            parser.current_nml = Some((nml_type, Vec::new()));
+            // Make sure to set the start the start of the tokens.
+            line = i;
+        }
+
+        // Tokenize the rest of the line.
+        let (i, mut tokens) = tokenize_nml(line).unwrap();
+        assert_eq!(i,"");
+        let current_nml = parser.current_nml.as_mut().unwrap();
+        current_nml.1.append(&mut tokens);
+        // If the line does not start with '&' it is either empty or a comment,
+        // so we just continue looping.
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Token {
+    LeftBracket,
+    RightBracket,
+    Equals,
+    Colon,
+    Comma,
+    RightSlash,
+    /// Some variable string that forms a token. Currently this could also
+    /// include numbers.
+    Str(String),
+}
+
+pub fn tokenize_nml(i: &str) -> IResult<&str, Vec<Token>> {
+    many0(parse_token)(i)
+}
+
+pub fn parse_token(i: &str) -> IResult<&str, Token> {
+    let i = i.trim();
+    let (i, first_char) = anychar(i)?;
+    match first_char {
+        '(' => Ok((i, Token::LeftBracket)),
+        ')' => Ok((i, Token::RightBracket)),
+        ':' => Ok((i, Token::Colon)),
+        '=' => Ok((i, Token::Equals)),
+        ',' => Ok((i, Token::Comma)),
+        '/' => Ok((i, Token::RightSlash)),
+        '\'' => {
+            // We have begun a quoted string. Fortran (FDS at least) does not
+            // support escapes, so we can just look for the next single quote.
+            let (i, chars) = many0(nom::character::complete::none_of("'"))(i)?;
+            let string: String = chars.into_iter().collect();
+            let (i, _) = char('\'')(i)?;
+            Ok((i, Token::Str(string)))
+        },
+        c => {
+            // We have some other char and must continue until we reach some
+            // other type [():'=] or whitespace.
+            let (i, mut others) = many0(nom::character::complete::none_of(" \t\r\n():=',/"))(i)?;
+            let mut chars = vec![c];
+            chars.append(&mut others);
+            let string: String = chars.into_iter().collect();
+            Ok((i, Token::Str(string)))
+        }
     }
 }
 
@@ -809,5 +1031,36 @@ mod tests {
             parse_double(&b"abc"[..]),
             Err(nom::Err::Error((&b"abc"[..], nom::error::ErrorKind::OneOf)))
         );
+    }
+
+    #[test]
+    fn simple_tokens() {
+        assert_eq!(
+            tokenize_nml("TEMPERATURES(1:2)=273, 274"),
+            Ok((
+                "",
+                vec![
+                    Token::Str("TEMPERATURES".to_string()),
+                    Token::LeftBracket,
+                    Token::Str("1".to_string()),
+                    Token::Colon,
+                    Token::Str("2".to_string()),
+                    Token::RightBracket,
+                    Token::Equals,
+                    Token::Str("273".to_string()),
+                    Token::Comma,
+                    Token::Str("274".to_string()),
+                ]
+            ))
+        );
+    }
+
+    #[test]
+    fn nml_iter() {
+        let f = std::fs::File::open("room_fire.fds").expect("could not open test file");
+        let parser = NmlParser::new(f);
+        for nml in parser {
+            println!("NML: {}: {:?}", nml.0, nml.1);
+        }
     }
 }
