@@ -145,6 +145,28 @@ pub struct Parameter {
     pub value: ParameterValue,
 }
 
+impl Parameter {
+    pub fn to_string(&self) -> String {
+        self.value.clone().try_into().unwrap()
+    }
+
+    pub fn to_u64(&self) -> u64 {
+        self.value.clone().try_into().unwrap()
+    }
+
+    pub fn to_i64(&self) -> i64 {
+        self.value.clone().try_into().unwrap()
+    }
+
+    pub fn to_bool(&self) -> bool {
+        self.value.clone().try_into().unwrap()
+    }
+
+    pub fn to_f64(&self) -> f64 {
+        self.value.clone().try_into().unwrap()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParameterValue {
     Atom(String),
@@ -170,6 +192,81 @@ impl TryFrom<Vec<Token>> for ParameterValue {
         }
     }
 }
+
+
+impl TryFrom<ParameterValue> for bool {
+    type Error = ();
+
+    fn try_from(pv: ParameterValue) -> Result<Self, Self::Error> {
+        match pv {
+            ParameterValue::Atom(s) => {
+                let s_val: NmlBool = s.parse().unwrap();
+                Ok(s_val.0)
+            },
+            ParameterValue::Array(_) => panic!("expected bool, not array"),
+        }
+    }
+}
+
+
+
+impl TryFrom<ParameterValue> for String {
+    type Error = ();
+
+    fn try_from(pv: ParameterValue) -> Result<Self, Self::Error> {
+        match pv {
+            ParameterValue::Atom(s) => {
+                let s_val: NmlString = s.parse().unwrap();
+                Ok(s_val.0)
+            },
+            ParameterValue::Array(_) => panic!("expected string, not array"),
+        }
+    }
+}
+
+
+impl TryFrom<ParameterValue> for u64 {
+    type Error = ();
+
+    fn try_from(pv: ParameterValue) -> Result<Self, Self::Error> {
+        match pv {
+            ParameterValue::Atom(s) => {
+                let s_val: NmlUint = s.parse().unwrap();
+                Ok(s_val.0)
+            },
+            ParameterValue::Array(_) => panic!("expected unsigned integer, not array"),
+        }
+    }
+}
+
+impl TryFrom<ParameterValue> for i64 {
+    type Error = ();
+
+    fn try_from(pv: ParameterValue) -> Result<Self, Self::Error> {
+        match pv {
+            ParameterValue::Atom(s) => {
+                let s_val: NmlInt = s.parse().unwrap();
+                Ok(s_val.0)
+            },
+            ParameterValue::Array(_) => panic!("expected signed integer, not array"),
+        }
+    }
+}
+
+impl TryFrom<ParameterValue> for f64 {
+    type Error = ();
+
+    fn try_from(pv: ParameterValue) -> Result<Self, Self::Error> {
+        match pv {
+            ParameterValue::Atom(s) => {
+                let s_val: NmlFloat = s.parse().unwrap();
+                Ok(s_val.0)
+            },
+            ParameterValue::Array(_) => panic!("expected float, not array"),
+        }
+    }
+}
+
 
 fn into_parameter_value_atom(token: Token) -> ParameterValue {
     match token {
