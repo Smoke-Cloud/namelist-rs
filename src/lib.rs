@@ -3,16 +3,14 @@ use std::io::Read;
 use std::io::{BufRead, BufReader};
 use std::convert::{TryFrom, TryInto};
 use log::debug;
-
+use std::str::FromStr;
 use nom::{
     branch::alt,
-    bytes::complete::is_a,
     character::complete::{
-        alphanumeric1, anychar, char, digit1, none_of, one_of,
+        alphanumeric1, anychar, char, none_of,
     },
-    combinator::{opt, peek},
+    combinator::{peek},
     multi::{many0, many1},
-    number::complete::double,
     IResult,
 };
 
@@ -186,55 +184,75 @@ pub struct ParameterArray {
     pub values: HashMap<Vec<i64>, String>,
 }
 
-/// A boolean is either an F or T (case insensitive) followed by any series of
-/// non-whitespace characters. It may also prepended by a period.
-pub fn boolean(i: &[u8]) -> IResult<&[u8], bool> {
-    let (i, _) = opt(char('.'))(i)?;
-    let (i, cs) = is_a("tTfF")(i)?;
-    let (i, _) = many0(none_of(" \t\r\n/,"))(i)?;
-    match cs {
-        b"t" | b"T" => Ok((i, true)),
-        b"f" | b"F" => Ok((i, false)),
-        _ => unreachable!(),
+#[derive(Clone, Debug, PartialEq)]
+pub struct NmlBool(bool);
+
+impl FromStr for NmlBool {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim_matches('.');
+        if s.starts_with("t") {
+            return Ok(NmlBool(true));
+        }
+        if s.starts_with("T") {
+            return Ok(NmlBool(true));
+        }
+        if s.starts_with("f") {
+            return Ok(NmlBool(false));
+        }
+        if s.starts_with("F") {
+            return Ok(NmlBool(false));
+        }
+        Err(())
     }
 }
 
-pub fn parse_int(i: &[u8]) -> IResult<&[u8], i64> {
-    let (i, s) = opt(alt((char('+'), char('-'))))(i)?;
-    let (i, digits) = digit1(i)?;
-    // allow a trailing decimal point and trailing zeros
-    let (i, period) = opt(char('.'))(i)?;
-    let i = if period.is_some() {
-        many0(char('0'))(i)?.0
-    } else {
-        i
-    };
-    // TODO: fix this error handling
-    let num = std::str::from_utf8(digits)
-        .expect("not valid utf8")
-        .parse::<i64>()
-        .expect("not a valid number");
-    if s == Some('-') {
-        Ok((i, -1 * num))
-    } else {
-        Ok((i, num))
+#[derive(Clone, Debug, PartialEq)]
+pub struct NmlInt(i64);
+
+impl FromStr for NmlInt {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(NmlInt(s.parse().unwrap()))
     }
 }
 
-pub fn parse_uint(i: &[u8]) -> IResult<&[u8], u64> {
-    let (i, digits) = digit1(i)?;
-    // TODO: fix this error handling
-    let num = std::str::from_utf8(digits)
-        .expect("not valid utf8")
-        .parse::<u64>()
-        .expect("not a valid number");
-    Ok((i, num))
+#[derive(Clone, Debug, PartialEq)]
+pub struct NmlUint(u64);
+
+impl FromStr for NmlUint {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(NmlUint(s.parse().unwrap()))
+    }
 }
 
-pub fn parse_double(i: &[u8]) -> IResult<&[u8], f64> {
-    // must start with either a digit or a decimal point.
-    peek(one_of("1234567890+-."))(i)?;
-    double(i)
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NmlFloat(f64);
+
+impl FromStr for NmlFloat {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(NmlFloat(s.parse().unwrap()))
+    }
+}
+
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NmlString(String);
+
+impl FromStr for NmlString {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // TODO: fail if it's not wrapped in single quotes (and only once)
+        Ok(NmlString(s.trim_matches('\'').parse().unwrap()))
+    }
 }
 
 pub fn parameter_name(i: &[u8]) -> IResult<&[u8], String> {
@@ -479,9 +497,12 @@ pub fn parse_token(i: &str) -> IResult<&str, Token> {
         '\'' => {
             // We have begun a quoted string. Fortran (FDS at least) does not
             // support escapes, so we can just look for the next single quote.
-            let (i, chars) = many0(nom::character::complete::none_of("'"))(i)?;
+            let (i, mut others) = many0(nom::character::complete::none_of("'"))(i)?;
+            let mut chars = vec!['\''];
+            chars.append(&mut others);
+            let (i, end_c) = char('\'')(i)?;
+            chars.append(&mut vec![end_c]);
             let string: String = chars.into_iter().collect();
-            let (i, _) = char('\'')(i)?;
             Ok((i, Token::Str(string)))
         },
         c => {
@@ -499,115 +520,41 @@ pub fn parse_token(i: &str) -> IResult<&str, Token> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nom;
-    use nom::error::ErrorKind::NoneOf;
-    // use std::error::Error;
-    // In these tests Ok(remaining, result) is used to make sure that we have
-    // consumed the input we expect to consume.
 
     #[test]
     fn boolean_examples() {
-        assert_eq!(boolean(b"t"), Ok((&[][..], true)));
-        assert_eq!(boolean(b"T"), Ok((&[][..], true)));
-        assert_eq!(boolean(b"f"), Ok((&[][..], false)));
-        assert_eq!(boolean(b"F"), Ok((&[][..], false)));
-        assert_eq!(boolean(b".FALSE."), Ok((&[][..], false)));
-        assert_eq!(boolean(b".TRUE."), Ok((&[][..], true)));
-        assert_eq!(boolean(b".TRUE., "), Ok((b", ".as_ref(), true)));
+        assert_eq!("t".parse(), Ok(NmlBool(true)));
+        assert_eq!("T".parse(), Ok(NmlBool(true)));
+        assert_eq!("f".parse(), Ok(NmlBool(false)));
+        assert_eq!("F".parse(), Ok(NmlBool(false)));
+        assert_eq!(".FALSE.".parse(), Ok(NmlBool(false)));
+        assert_eq!(".TRUE.".parse(), Ok(NmlBool(true)));
     }
 
     #[test]
     fn int_examples() {
-        assert_eq!(parse_int(b"-2"), Ok((&[][..], -2)));
-        assert_eq!(parse_int(b"60."), Ok((&[][..], 60)));
-        // assert_eq!(boolean(b"T"), Ok((&[][..], true)));
-        // assert_eq!(boolean(b"f"), Ok((&[][..], false)));
-        // assert_eq!(boolean(b"F"), Ok((&[][..], false)));
-        // assert_eq!(boolean(b".FALSE."), Ok((&[][..], false)));
-        // assert_eq!(boolean(b".TRUE."), Ok((&[][..], true)));
-        // assert_eq!(boolean(b".TRUE., "), Ok((b", ".as_ref(), true)));
+        assert_eq!("-2".parse(), Ok(NmlInt(-2)));
+        assert_eq!("60".parse(), Ok(NmlInt(60)));
     }
 
     #[test]
     fn double_examples() {
-        assert_eq!(parse_double(b"1E13"), Ok((&[][..], 1E13)));
-        assert_eq!(parse_double(b"2.75E12"), Ok((&[][..], 2.75E12)));
-        // assert_eq!(boolean(b"T"), Ok((&[][..], true)));
-        // assert_eq!(boolean(b"f"), Ok((&[][..], false)));
-        // assert_eq!(boolean(b"F"), Ok((&[][..], false)));
-        // assert_eq!(boolean(b".FALSE."), Ok((&[][..], false)));
-        // assert_eq!(boolean(b".TRUE."), Ok((&[][..], true)));
-        // assert_eq!(boolean(b".TRUE., "), Ok((b", ".as_ref(), true)));
+        assert_eq!("1E13".parse(), Ok(NmlFloat(1e13)));
+        assert_eq!("2.75E12".parse(), Ok(NmlFloat(2.75e12)));
     }
 
     #[test]
     fn string_examples() {
         assert_eq!(
-            quoted_string(b"\'hello\'"),
-            Ok((&[][..], String::from("hello")))
-        );
-        // assert_eq!(boolean(b"T"), Ok((&[][..], true)));
-        // assert_eq!(boolean(b"f"), Ok((&[][..], false)));
-        // assert_eq!(boolean(b"F"), Ok((&[][..], false)));
-        // assert_eq!(boolean(b".FALSE."), Ok((&[][..], false)));
-        // assert_eq!(boolean(b".TRUE."), Ok((&[][..], true)));
-        // assert_eq!(boolean(b".TRUE., "), Ok((b", ".as_ref(), true)));
-    }
-
-    #[test]
-    fn parameter_name_examples() {
-        assert_eq!(parameter_name(b"speed"), Ok((&[][..], "speed".to_string())));
-        assert_eq!(parameter_name(b"s"), Ok((&[][..], "s".to_string())));
-        // An empty string is not parsed
-        assert_eq!(
-            parameter_name(b""),
-            Err(nom::Err::Error((b"".as_ref(), NoneOf)))
-        );
-        // Parameter name cannot start with a number
-        assert_eq!(
-            parameter_name(b"2speed"),
-            Err(nom::Err::Error((b"2speed".as_ref(), NoneOf)))
+            "\'hello\'".parse(),
+            Ok(NmlString("hello".to_string()))
         );
     }
 
-    // #[test]
-    // fn namelistfile_examples() {
-    //     use std::collections::HashMap;
-    //     let mut group_spec = HashMap::new();
-    //     group_spec.insert(
-    //         "TEMPERATURES".to_string(),
-    //         ParameterSpec::Array(ParameterSpecAtom::Double),
-    //     );
-    //     let mut namelist_spec: NamelistSpec = HashMap::new();
-    //     namelist_spec.insert("HEAD".to_string(), group_spec);
-    //     let expected = Namelist {
-    //         name: "HEAD".to_string(),
-    //         parameters: vec![Parameter {
-    //             name: "TEMPERATURES".to_string(),
-    //             value: ParameterValue::Array(
-    //                 ParamPos::OneDim(Range::TwoNumber(1_u64, 2_u64)),
-    //                 vec![273_f64.into(), 274_f64.into()],
-    //             ),
-    //         }],
-    //     };
-    //     assert_eq!(
-    //         parse_namelist(&namelist_spec, b"&HEAD TEMPERATURES(1:2)=273, 274 /"),
-    //         Ok((&[][..], expected))
-    //     );
-    // }
     #[test]
     fn float_check() {
-        assert_eq!(parse_double(&b"1.1"[..]), Ok((&b""[..], 1.1)));
-        assert_eq!(
-            parse_double(&b"EX"[..]),
-            Err(nom::Err::Error((&b"EX"[..], nom::error::ErrorKind::OneOf)))
-        );
-        assert_eq!(parse_double(&b"123E-02"[..]), Ok((&b""[..], 1.23)));
-        assert_eq!(parse_double(&b"123K-01"[..]), Ok((&b"K-01"[..], 123.0)));
-        assert_eq!(
-            parse_double(&b"abc"[..]),
-            Err(nom::Err::Error((&b"abc"[..], nom::error::ErrorKind::OneOf)))
-        );
+        assert_eq!("1.1".parse(), Ok(NmlFloat(1.1)));
+        assert_eq!("123E-02".parse(), Ok(NmlFloat(1.23)));
     }
 
     #[test]
