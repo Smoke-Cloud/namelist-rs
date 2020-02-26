@@ -3,7 +3,7 @@ extern crate nom;
 use std::collections::HashMap;
 use std::io::Read;
 use std::io::{BufRead, BufReader};
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 
 // TODO: need to change this to a line-based parse to handle comments etc.
 use nom::{
@@ -46,7 +46,12 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
             } else {
                 panic!("{:?} not a valid param name", param_name)
             };
-            println!("pair: {}: {:?} - {:?}", param_name, pos_tokens, param_tokens);
+            let pos: Option<ParamPos> = if pos_tokens.len() > 0 {
+                Some(pos_tokens.try_into().expect("could not parse parampos"))
+            } else {
+                None
+            };
+            println!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
 
         }
         todo!()
@@ -137,6 +142,20 @@ pub enum ParameterValue {
     Atom(ParameterValueAtom),
     Array(ParameterArray),
 }
+
+// impl TryFrom<Vec<Token>> for ParameterValue  {
+//     type Error = ();
+
+//     fn try_from(tokens: Vec<Token>) -> Result<Self, Self::Error> {
+//         let sections: Vec<&[Token]> = tokens.split(|x| x == &Token::Comma).collect();
+//         let vals: Vec<Range> = sections.into_iter().map(|x| x.try_into().unwrap()).collect();
+//         match vals.len() {
+//             // We have a single-dimensional value
+//             1 => Ok(ParameterValue::Atom(vals[0].try_into().unwrap())),
+//             _ => todo!(),
+//         }
+//     }
+// }
 
 /// Currently optimised for very sparse arrays (mainly for simplicity of
 /// implementation).
@@ -352,6 +371,23 @@ impl ParamPos {
     }
 }
 
+impl TryFrom<Vec<Token>> for ParamPos {
+    type Error = ();
+
+    fn try_from(tokens: Vec<Token>) -> Result<Self, Self::Error> {
+        let sections: Vec<&[Token]> = tokens.split(|x| x == &Token::Comma).collect();
+        let ranges: Vec<Range> = sections.into_iter().map(|x| x.try_into().unwrap()).collect();
+        match ranges.len() {
+            // We have a single-dimensional value
+            1 => Ok(ParamPos::OneDim(ranges[0])),
+            // We have a two-dimensional value
+            2 => Ok(ParamPos::TwoDim(ranges[0], ranges[1])),
+            // TODO: technically they can have more dimensions
+            _ => panic!("Only 1 or 2 dimensions allowed"),
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Range {
     /// i.e. ":"
@@ -366,6 +402,19 @@ impl Range {
             Range::Numberless => panic!("not enough information"),
             Range::SingleNumber(_) => 1_usize,
             Range::TwoNumber(m, n) => (n - m + 1) as usize,
+        }
+    }
+}
+
+impl TryFrom<&[Token]> for Range {
+    type Error = ();
+
+    fn try_from(tokens: &[Token]) -> Result<Self, Self::Error> {
+        match tokens {
+            [Token::Colon] => Ok(Range::Numberless),
+            [Token::Str(s)] => Ok(Range::SingleNumber(s.parse().unwrap())),
+            [Token::Str(s1), Token::Colon, Token::Str(s2)] => Ok(Range::TwoNumber(s1.parse().unwrap(), s2.parse().unwrap())),
+            _ => panic!("too many elements for range"),
         }
     }
 }
