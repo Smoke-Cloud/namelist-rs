@@ -40,8 +40,14 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
         };
         let tokens = vals.1;
         let eq_split = EqualsSplitter::new(tokens.into_iter());
-        for p in eq_split {
-            println!("pair: {:?}", p);
+        for (param_name, pos_tokens, param_tokens) in eq_split {
+            let param_name = if let Token::Str(s) = param_name {
+                s
+            } else {
+                panic!("{:?} not a valid param name", param_name)
+            };
+            println!("pair: {}: {:?} - {:?}", param_name, pos_tokens, param_tokens);
+
         }
         todo!()
     }
@@ -62,7 +68,7 @@ impl<'a> EqualsSplitter {
 }
 
 impl<'a> Iterator for EqualsSplitter {
-    type Item = (Token, Vec<Token>);
+    type Item = (Token, Vec<Token>, Vec<Token>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut param_name = self.prev.clone();
@@ -74,11 +80,15 @@ impl<'a> Iterator for EqualsSplitter {
             return None;
         }
         println!("param_name: {:?}", param_name);
+        let mut pos_tokens = Vec::new();
         if let Some(&Token::LeftBracket) = self.tokens.peek() {
+            self.tokens.next().unwrap();
             loop {
                 let t = self.tokens.next().unwrap();
                 if t == Token::RightBracket {
                     break;
+                } else {
+                    pos_tokens.push(t);
                 }
             }
 
@@ -92,11 +102,11 @@ impl<'a> Iterator for EqualsSplitter {
                     if let Some(&Token::Equals) = self.tokens.peek() {
                         println!("found equals, current prev: {:?}", self.prev);
                         // We have found the next equals, so we return what we have.
-                        return Some((param_name.unwrap(), param_tokens));
+                        return Some((param_name.unwrap(), pos_tokens, param_tokens));
                     }
                     let token = self.tokens.next();
                     if token.is_none() {
-                        return Some((param_name.unwrap(), param_tokens));
+                        return Some((param_name.unwrap(), pos_tokens, param_tokens));
                     }
                     let token = token.unwrap();
                     println!("processing token: {:?}", token);
@@ -108,7 +118,7 @@ impl<'a> Iterator for EqualsSplitter {
                     }
 
                 }
-                return Some((param_name.unwrap(), param_tokens));
+                return Some((param_name.unwrap(), pos_tokens, param_tokens));
             },
             e => panic!("expected '=' found {:?}", e),
         }
