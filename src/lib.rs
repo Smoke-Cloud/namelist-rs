@@ -608,7 +608,7 @@ impl<R: Read> NmlParser<R> {
 }
 
 impl<R: Read> Iterator for NmlParser<R> {
-    type Item = (String, Vec<Token>);
+    type Item = RawNamelist;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.last == true {
@@ -626,7 +626,7 @@ impl<R: Read> Iterator for NmlParser<R> {
                     // There is no data left. If we have a current nml, we
                     // return that, otherwise we just return None.
                     self.last = true;
-                    break self.current_nml.clone();
+                    break self.current_nml.clone().map(|x| x.try_into().unwrap());
                 }
             }
             let mut line: &str = self.buf.trim();
@@ -643,7 +643,7 @@ impl<R: Read> Iterator for NmlParser<R> {
                 if self.current_nml.is_some() {
                     let current_nml = self.current_nml.clone().expect("no current nml");
                     self.current_nml = None;
-                    break Some(current_nml);
+                    break Some(current_nml.try_into().unwrap());
                 }
                 // First, skip the ampersand character.
                 let i = &line[1..];
@@ -1198,13 +1198,10 @@ mod tests {
 
     #[test]
     fn nml_iter() {
-        use std::convert::TryInto;
         let f = std::fs::File::open("room_fire.fds").expect("could not open test file");
         let parser = NmlParser::new(f);
         for nml in parser {
-            println!("NML: {}: {:?}", nml.0, nml.1);
-            let namelist: RawNamelist = nml.try_into().expect("conversion failed");
-            println!("NMLD: {:?}", namelist);
+            println!("NML: {:?}", nml);
         }
     }
 }
