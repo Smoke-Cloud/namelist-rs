@@ -654,13 +654,15 @@ impl<R: Read> Iterator for NmlParser<R> {
                     if token == Token::RightSlash {
                         trimmed_tokens.push(token);
                         break;
+                    } else if token.starts_with("&") {
+                        break;
                     } else {
                         trimmed_tokens.push(token);
                     }
                 }
                 let mut tokens: Vec<Token> = trimmed_tokens;
                 {
-                    let current_nml = self.current_nml.as_mut().expect("could not add to no current nml");
+                    let current_nml = self.current_nml.as_mut().expect("could not add to current nml");
                     current_nml.1.append(&mut tokens);
                 }
                 if self.current_nml.clone().unwrap().1.last() == Some(&Token::RightSlash) {
@@ -689,6 +691,20 @@ pub enum Token {
     /// Some variable string that forms a token. Currently this could also
     /// include numbers.
     Str(String),
+}
+
+impl Token {
+    pub fn starts_with(&self, pat: &str) -> bool {
+        match self {
+            Token::LeftBracket => pat == "(",
+            Token::RightBracket => pat == ")",
+            Token::Equals => pat == "=",
+            Token::Colon => pat == ":",
+            Token::Comma => pat == ",",
+            Token::RightSlash => pat == "/",
+            Token::Str(ref s) => s.starts_with(pat),
+        }
+    }
 }
 
 pub fn tokenize_nml(i: &str) -> IResult<&str, Vec<Token>> {
