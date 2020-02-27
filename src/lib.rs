@@ -630,9 +630,20 @@ impl<R: Read> Iterator for NmlParser<R> {
 
             if self.current_nml.is_some() {
                 // Tokenize the rest of the line.
-                let (i, mut tokens) = tokenize_nml(line).expect("could not tokenize");
+                let (i, tokens) = tokenize_nml(line).expect("could not tokenize");
                 assert_eq!(i,"");
                 self.buf.clear();
+                // Ignore everything after RightSlash
+                let mut trimmed_tokens = Vec::new();
+                for token in tokens.into_iter() {
+                    if token == Token::RightSlash {
+                        trimmed_tokens.push(token);
+                        break;
+                    } else {
+                        trimmed_tokens.push(token);
+                    }
+                }
+                let mut tokens: Vec<Token> = trimmed_tokens;
                 {
                     let current_nml = self.current_nml.as_mut().expect("could not add to no current nml");
                     current_nml.1.append(&mut tokens);
@@ -775,6 +786,15 @@ mod tests {
     #[test]
     fn regression_1() {
         let input = "&SURF ID='Surface02', RGB=146,202,166, BACKING='VOID', MATL_ID(1,1)='STEEL', MATL_MASS_FRACTION(1,1)=1.0, THICKNESS(1)=0.003/\n! DUMP: NFRAMES: Output is dumped every 1.00 s";
+        let parser = NmlParser::new(std::io::Cursor::new(input));
+        for nml in parser {
+            println!("NML: {:?}", nml);
+        }
+    }
+
+    #[test]
+    fn regression_2() {
+        let input = "&OBST XB=19,20,-1,1, 0,100 /  Left Facade";
         let parser = NmlParser::new(std::io::Cursor::new(input));
         for nml in parser {
             println!("NML: {:?}", nml);
