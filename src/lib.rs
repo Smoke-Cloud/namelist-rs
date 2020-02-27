@@ -836,7 +836,7 @@ mod tests {
 
     #[test]
     fn nml_iter() {
-        let f = std::fs::File::open("room_fire.fds").expect("could not open test file");
+        let f = std::fs::File::open("test/test_input.txt").expect("could not open test file");
         let parser = NmlParser::new(f);
         for nml in parser {
             debug!("NML: {:?}", nml);
