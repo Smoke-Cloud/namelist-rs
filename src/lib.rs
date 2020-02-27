@@ -681,6 +681,9 @@ pub fn tokenize_nml(i: &str) -> IResult<&str, Vec<Token>> {
     let mut tokens = Vec::new();
     let mut i = i;
     loop {
+        if i == "" {
+            break;
+        }
         let (adj, tok) = parse_token(i)?;
         i = adj;
         let end = tok == Token::RightSlash;
