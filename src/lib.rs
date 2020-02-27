@@ -29,12 +29,13 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
     type Error = &'static str;
 
     fn try_from(vals: (String, Vec<Token>)) -> Result<Self, Self::Error> {
+        println!("converting from: {:?}", vals);
         let mut nml: Self = Self {
             name: vals.0.clone(),
             parameters: HashMap::new(),
         };
         let tokens = vals.1;
-        debug!("tokens: {:?}", tokens);
+        println!("tokens: {:?}", tokens);
         let eq_split = EqualsSplitter::new(tokens.into_iter());
         for (param_name, pos_tokens, param_tokens) in eq_split {
             let param_name = if let Token::Str(s) = param_name {
@@ -47,7 +48,7 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
             } else {
                 None
             };
-            debug!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
+            println!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
             let parameter_values: ParameterValue = ParameterValue::from(pos, param_tokens).unwrap();
             nml.parameters.entry(param_name.clone())
                 .and_modify(|param| {
@@ -79,6 +80,7 @@ fn combine_arrays(a1: &mut HashMap<Vec<i64>, String>, a2: &HashMap<Vec<i64>, Str
     }
 }
 
+#[derive(Debug)]
 struct EqualsSplitter {
     tokens: std::iter::Peekable<std::vec::IntoIter<Token>>,
     prev: Option<Token>,
@@ -97,20 +99,24 @@ impl<'a> Iterator for EqualsSplitter {
     type Item = (Token, Vec<Token>, Vec<Token>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut param_name = self.prev.clone();
+        println!("current: {:?}", self);
+        // If we have a prev value, we use that as the parameter name. If not we
+        // use the first token in the iterator.
+        let param_name = match &self.prev {
+            Some(s) => Some(s.clone()),
+            None => self.tokens.next().clone(),
+        };
         self.prev = None;
-        if param_name.is_none() {
-            param_name = self.tokens.next().clone();
-        }
         if param_name.is_none() || param_name == Some(Token::RightSlash) {
             return None;
         }
-        debug!("param_name: {:?}", param_name);
+        println!("param_name: {:?}", param_name);
         let mut pos_tokens = Vec::new();
         if let Some(&Token::LeftBracket) = self.tokens.peek() {
-            self.tokens.next().unwrap();
+            println!("processing pos info");
+            self.tokens.next().expect("err: abc");
             loop {
-                let t = self.tokens.next().unwrap();
+                let t = self.tokens.next().expect("err: 15");
                 if t == Token::RightBracket {
                     break;
                 } else {
@@ -119,30 +125,35 @@ impl<'a> Iterator for EqualsSplitter {
             }
 
         }
+        let mut param_tokens = Vec::new();
         match self.tokens.next().unwrap() {
             Token::Equals => {
+                println!("next token is equals");
                 // Now we have the parameter name and equals, keep adding tokens
                 // until we get to the next equals or the end slash
-                let mut param_tokens = Vec::new();
                 loop {
                     {
                         if let Some(some_token) = self.tokens.peek() {
                             match some_token {
                                 &Token::Equals | Token::LeftBracket => {
-                                    debug!("found equals or left bracket, current prev: {:?}", self.prev);
+                                    println!("found equals or left bracket, current prev: {:?}", self.prev);
                                     // We have found the next equals, so we return what we have.
-                                    return Some((param_name.unwrap(), pos_tokens, param_tokens));
+                                    return Some((param_name.expect("err: 19"), pos_tokens, param_tokens));
                                 }
                                 _ => (),
                             }
                         }
                     }
                     let token = self.tokens.next();
+                    println!("next_token: {:?}", token);
                     if token.is_none() {
-                        return Some((param_name.unwrap(), pos_tokens, param_tokens));
+                        param_tokens.push(self.prev.clone().expect("no prev"));
+                        self.prev = None;
+                        return Some((param_name.expect("err: 17"), pos_tokens, param_tokens));
                     }
-                    let token = token.unwrap();
-                    debug!("processing token: {:?}", token);
+                    let token = token.expect("err: 18");
+                    println!("processing token: {:?}", token);
+                    println!("prev: {:?}", self.prev);
                     if let Some(prev) = self.prev.clone() {
                         self.prev = Some(token.clone());
                         param_tokens.push(prev);
@@ -603,7 +614,7 @@ impl<R: Read> Iterator for NmlParser<R> {
                 }
             }
             let mut line: &str = self.buf.trim();
-            // debug!("line: {}", line);
+            // println!("line: {}", line);
             // If the line (after whitespace) begins with an ampersand, it is a new
             // namelist.
 
@@ -614,6 +625,7 @@ impl<R: Read> Iterator for NmlParser<R> {
                 // "current_nml" buffer to None, and leaving the line buffer
                 // as-is.
                 if self.current_nml.is_some() {
+                    println!("new nml before closing current");
                     let current_nml = self.current_nml.clone().expect("no current nml");
                     self.current_nml = None;
                     break Some(current_nml.try_into().unwrap());
@@ -652,7 +664,9 @@ impl<R: Read> Iterator for NmlParser<R> {
                     current_nml.1.append(&mut tokens);
                 }
                 if self.current_nml.clone().unwrap().1.last() == Some(&Token::RightSlash) {
-                    let current_nml = self.current_nml.clone().unwrap();
+                    let mut current_nml = self.current_nml.clone().unwrap();
+                    // Since we end in a right slash we want to remove it.
+                    current_nml.1.remove(current_nml.1.len()-1);
                     self.current_nml = None;
                     break Some(current_nml.try_into().unwrap());
                 }
@@ -817,4 +831,25 @@ mod tests {
             println!("NML: {:?}", nml);
         }
     }
+
+    #[test]
+    fn regression_3() {
+        let input = "&HEAD CHID='mean_forcing_hole', TITLE='Test HOLE feature for MEAN_FORCING'\n\n&MESH IJK=40,40,20, XB=-20,20,-20,20,0,10 /";
+        let parser = NmlParser::new(std::io::Cursor::new(input));
+        for nml in parser {
+            println!("NML: {:?}", nml);
+        }
+    }
+
+    #[test]
+    fn eq_split() {
+        let tokens = vec![Token::Str("CHID".to_string()), Token::Equals, Token::Str("\'mean_forcing_hole\'".to_string()), Token::Comma, Token::Str("TITLE".to_string()), Token::Equals, Token::Str("\'Test HOLE feature for MEAN_FORCING\'".to_string())];
+        let eq_split = EqualsSplitter::new(tokens.into_iter());
+        for pair in eq_split {
+            println!("pair: {:?}", pair);
+        }
+    }
+
+
+
 }
