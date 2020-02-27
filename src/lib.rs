@@ -29,13 +29,13 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
     type Error = &'static str;
 
     fn try_from(vals: (String, Vec<Token>)) -> Result<Self, Self::Error> {
-        println!("converting from: {:?}", vals);
+        debug!("converting from: {:?}", vals);
         let mut nml: Self = Self {
             name: vals.0.clone(),
             parameters: HashMap::new(),
         };
         let tokens = vals.1;
-        println!("tokens: {:?}", tokens);
+        debug!("tokens: {:?}", tokens);
         let eq_split = EqualsSplitter::new(tokens.into_iter());
         for (param_name, pos_tokens, param_tokens) in eq_split {
             let param_name = if let Token::Str(s) = param_name {
@@ -48,7 +48,7 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
             } else {
                 None
             };
-            println!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
+            debug!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
             let parameter_values: ParameterValue = ParameterValue::from(pos, param_tokens).unwrap();
             nml.parameters.entry(param_name.clone())
                 .and_modify(|param| {
@@ -99,7 +99,7 @@ impl<'a> Iterator for EqualsSplitter {
     type Item = (Token, Vec<Token>, Vec<Token>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        println!("current: {:?}", self);
+        debug!("current: {:?}", self);
         // If we have a prev value, we use that as the parameter name. If not we
         // use the first token in the iterator.
         let param_name = match &self.prev {
@@ -110,10 +110,10 @@ impl<'a> Iterator for EqualsSplitter {
         if param_name.is_none() || param_name == Some(Token::RightSlash) {
             return None;
         }
-        println!("param_name: {:?}", param_name);
+        debug!("param_name: {:?}", param_name);
         let mut pos_tokens = Vec::new();
         if let Some(&Token::LeftBracket) = self.tokens.peek() {
-            println!("processing pos info");
+            debug!("processing pos info");
             self.tokens.next().expect("err: abc");
             loop {
                 let t = self.tokens.next().expect("err: 15");
@@ -128,7 +128,7 @@ impl<'a> Iterator for EqualsSplitter {
         let mut param_tokens = Vec::new();
         match self.tokens.next().unwrap() {
             Token::Equals => {
-                println!("next token is equals");
+                debug!("next token is equals");
                 // Now we have the parameter name and equals, keep adding tokens
                 // until we get to the next equals or the end slash
                 loop {
@@ -136,7 +136,7 @@ impl<'a> Iterator for EqualsSplitter {
                         if let Some(some_token) = self.tokens.peek() {
                             match some_token {
                                 &Token::Equals | Token::LeftBracket => {
-                                    println!("found equals or left bracket, current prev: {:?}", self.prev);
+                                    debug!("found equals or left bracket, current prev: {:?}", self.prev);
                                     // We have found the next equals, so we return what we have.
                                     return Some((param_name.expect("err: 19"), pos_tokens, param_tokens));
                                 }
@@ -145,15 +145,15 @@ impl<'a> Iterator for EqualsSplitter {
                         }
                     }
                     let token = self.tokens.next();
-                    println!("next_token: {:?}", token);
+                    debug!("next_token: {:?}", token);
                     if token.is_none() {
                         param_tokens.push(self.prev.clone().expect("no prev"));
                         self.prev = None;
                         return Some((param_name.expect("err: 17"), pos_tokens, param_tokens));
                     }
                     let token = token.expect("err: 18");
-                    println!("processing token: {:?}", token);
-                    println!("prev: {:?}", self.prev);
+                    debug!("processing token: {:?}", token);
+                    debug!("prev: {:?}", self.prev);
                     if let Some(prev) = self.prev.clone() {
                         self.prev = Some(token.clone());
                         param_tokens.push(prev);
@@ -614,7 +614,7 @@ impl<R: Read> Iterator for NmlParser<R> {
                 }
             }
             let mut line: &str = self.buf.trim();
-            // println!("line: {}", line);
+            // debug!("line: {}", line);
             // If the line (after whitespace) begins with an ampersand, it is a new
             // namelist.
 
@@ -625,7 +625,7 @@ impl<R: Read> Iterator for NmlParser<R> {
                 // "current_nml" buffer to None, and leaving the line buffer
                 // as-is.
                 if self.current_nml.is_some() {
-                    println!("new nml before closing current");
+                    debug!("new nml before closing current");
                     let current_nml = self.current_nml.clone().expect("no current nml");
                     self.current_nml = None;
                     break Some(current_nml.try_into().unwrap());
@@ -810,7 +810,7 @@ mod tests {
         let f = std::fs::File::open("room_fire.fds").expect("could not open test file");
         let parser = NmlParser::new(f);
         for nml in parser {
-            println!("NML: {:?}", nml);
+            debug!("NML: {:?}", nml);
         }
     }
 
@@ -819,7 +819,7 @@ mod tests {
         let input = "&SURF ID='Surface02', RGB=146,202,166, BACKING='VOID', MATL_ID(1,1)='STEEL', MATL_MASS_FRACTION(1,1)=1.0, THICKNESS(1)=0.003/\n! DUMP: NFRAMES: Output is dumped every 1.00 s";
         let parser = NmlParser::new(std::io::Cursor::new(input));
         for nml in parser {
-            println!("NML: {:?}", nml);
+            debug!("NML: {:?}", nml);
         }
     }
 
@@ -828,7 +828,7 @@ mod tests {
         let input = "&OBST XB=19,20,-1,1, 0,100 /  Left Facade";
         let parser = NmlParser::new(std::io::Cursor::new(input));
         for nml in parser {
-            println!("NML: {:?}", nml);
+            debug!("NML: {:?}", nml);
         }
     }
 
@@ -837,7 +837,7 @@ mod tests {
         let input = "&HEAD CHID='mean_forcing_hole', TITLE='Test HOLE feature for MEAN_FORCING'\n\n&MESH IJK=40,40,20, XB=-20,20,-20,20,0,10 /";
         let parser = NmlParser::new(std::io::Cursor::new(input));
         for nml in parser {
-            println!("NML: {:?}", nml);
+            debug!("NML: {:?}", nml);
         }
     }
 
@@ -846,7 +846,7 @@ mod tests {
         let tokens = vec![Token::Str("CHID".to_string()), Token::Equals, Token::Str("\'mean_forcing_hole\'".to_string()), Token::Comma, Token::Str("TITLE".to_string()), Token::Equals, Token::Str("\'Test HOLE feature for MEAN_FORCING\'".to_string())];
         let eq_split = EqualsSplitter::new(tokens.into_iter());
         for pair in eq_split {
-            println!("pair: {:?}", pair);
+            debug!("pair: {:?}", pair);
         }
     }
 
