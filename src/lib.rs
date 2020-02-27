@@ -22,7 +22,7 @@ pub struct NamelistFile {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Namelist {
     pub name: String,
-    pub parameters: HashMap<String, Parameter>,
+    pub parameters: HashMap<String, ParameterValue>,
 }
 
 impl TryFrom<(String, Vec<Token>)> for Namelist {
@@ -48,14 +48,34 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
                 None
             };
             debug!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
-            let parameter_values: ParameterValue = param_tokens.try_into().unwrap();
-            nml.parameters.insert(param_name.clone(), Parameter {
-                name: param_name,
-                pos: pos,
-                value: parameter_values,
-            });
+            let parameter_values: ParameterValue = ParameterValue::from(pos, param_tokens).unwrap();
+            nml.parameters.entry(param_name.clone())
+                .and_modify(|param| {
+                    combine_param(param, &parameter_values);
+                })
+                .or_insert(parameter_values);
         }
         Ok(nml)
+    }
+}
+
+fn combine_param(p1: &mut ParameterValue, p2: &ParameterValue) {
+    match (p1, p2) {
+        // If it's an atom, just replace it. If we're replacing an atom with an
+        // array, this shouldn't happen, but just overwrite.
+        (p1@ParameterValue::Atom(_), _) => p1.clone_from(p2),
+        // An atom replacing an array should also not happen, but do it.
+        (p1@ParameterValue::Array(_), ParameterValue::Atom(_)) => p1.clone_from(p2),
+        // If it's an array, combine and overwrite.
+        (ParameterValue::Array(ref mut original_array),ParameterValue::Array(ref new_array)) => combine_arrays(original_array, new_array),
+    }
+}
+
+/// Add the elements of a2 to a1, overwriting where necessary
+/// TODO: use entry API
+fn combine_arrays(a1: &mut HashMap<Vec<i64>, String>, a2: &HashMap<Vec<i64>, String>) {
+    for (k,v) in a2.iter() {
+        a1.insert(k.clone(),v.clone());
     }
 }
 
@@ -141,42 +161,19 @@ impl<'a> Iterator for EqualsSplitter {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Parameter {
     pub name: String,
-    pub pos: Option<ParamPos>,
+    // pub pos: Option<ParamPos>,
     pub value: ParameterValue,
-}
-
-impl Parameter {
-    pub fn to_string(&self) -> String {
-        self.value.clone().try_into().unwrap()
-    }
-
-    pub fn to_u64(&self) -> u64 {
-        self.value.clone().try_into().unwrap()
-    }
-
-    pub fn to_i64(&self) -> i64 {
-        self.value.clone().try_into().unwrap()
-    }
-
-    pub fn to_bool(&self) -> bool {
-        self.value.clone().try_into().unwrap()
-    }
-
-    pub fn to_f64(&self) -> f64 {
-        self.value.clone().try_into().unwrap()
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParameterValue {
     Atom(String),
-    Array(Vec<String>),
+    Array(HashMap<Vec<i64>,String>),
 }
 
-impl TryFrom<Vec<Token>> for ParameterValue {
-    type Error = ();
+impl ParameterValue {
 
-    fn try_from(tokens: Vec<Token>) -> Result<Self, Self::Error> {
+    fn from(pos: Option<ParamPos>, tokens: Vec<Token>) -> Result<Self, ()> {
         match tokens.len() {
             0 => panic!("no tokens"),
             // We have a single value
@@ -187,12 +184,16 @@ impl TryFrom<Vec<Token>> for ParameterValue {
                     Token::Str(s) => s,
                     v =>  panic!("invalid array value: {:?}", v),
                 }).collect();
-                Ok(ParameterValue::Array(vals))
+                let mut value_map: HashMap<Vec<i64>, String> = HashMap::new();
+                let indices = pos.map(|p| p.iter()).unwrap_or(ParamPos::default_iter());
+                for (is, value) in indices.zip(vals.into_iter()) {
+                    value_map.insert(is.into_iter().map(|x| x as i64).collect(), value);
+                }
+                Ok(ParameterValue::Array(value_map))
             },
         }
     }
 }
-
 
 impl TryFrom<ParameterValue> for bool {
     type Error = ();
@@ -266,7 +267,6 @@ impl TryFrom<ParameterValue> for f64 {
         }
     }
 }
-
 
 fn into_parameter_value_atom(token: Token) -> ParameterValue {
     match token {
@@ -430,6 +430,85 @@ impl ParamPos {
                 "In a two-dimensional position parameter, one dimensions must be a single number"
             ),
         }
+    }
+
+    pub fn iter(&self) -> PosIter {
+        match self {
+            ParamPos::OneDim(Range::Numberless) => PosIter {
+                indices: vec![1],
+                counting_index: 0,
+                max: None,
+            },
+            ParamPos::OneDim(Range::SingleNumber(n)) => PosIter {
+                indices: vec![*n as usize],
+                counting_index: 0,
+                max: Some(*n as usize),
+            },
+            ParamPos::OneDim(Range::TwoNumber(n1, n2)) => PosIter {
+                indices: vec![*n1 as usize],
+                counting_index: 0,
+                max: Some(*n2 as usize),
+            },
+            ParamPos::TwoDim(Range::Numberless, Range::Numberless) => panic!("single dimensions at a time"),
+            ParamPos::TwoDim(Range::TwoNumber(_,_), Range::Numberless) => panic!("single dimensions at a time"),
+            ParamPos::TwoDim(Range::Numberless, Range::TwoNumber(_,_)) => panic!("single dimensions at a time"),
+            ParamPos::TwoDim(Range::TwoNumber(_,_), Range::TwoNumber(_,_)) => panic!("single dimensions at a time"),
+            ParamPos::TwoDim(Range::SingleNumber(n), Range::Numberless) => PosIter {
+                indices: vec![*n as usize, 1],
+                counting_index: 1,
+                max: None,
+            },
+            ParamPos::TwoDim(Range::Numberless, Range::SingleNumber(n)) => PosIter {
+                indices: vec![1, *n as usize],
+                counting_index: 0,
+                max: None,
+            },
+            ParamPos::TwoDim(Range::SingleNumber(n), Range::TwoNumber(start,end)) => PosIter {
+                indices: vec![*n as usize, *start as usize],
+                counting_index: 1,
+                max: Some(*end as usize),
+            },
+            ParamPos::TwoDim(Range::TwoNumber(start,end), Range::SingleNumber(n)) => PosIter {
+                indices: vec![*start as usize, *n as usize],
+                counting_index: 0,
+                max: Some(*end as usize),
+            },
+            ParamPos::TwoDim(Range::SingleNumber(n1), Range::SingleNumber(n2)) => PosIter {
+                indices: vec![*n1 as usize, *n2 as usize],
+                counting_index: 0,
+                max: Some(*n1 as usize),
+            },
+        }
+    }
+
+    pub fn default_iter() -> PosIter {
+        PosIter {
+            indices: vec![1],
+            counting_index: 0,
+            max: None
+        }
+    }
+}
+
+pub struct PosIter {
+    indices: Vec<usize>,
+    counting_index: usize,
+    max: Option<usize>
+}
+
+impl Iterator for PosIter {
+    type Item = Vec<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(max) = self.max {
+            if *self.indices.get(self.counting_index).unwrap() > max {
+                return None;
+            }
+        }
+        let item = self.indices.clone();
+        let i = self.indices.get_mut(self.counting_index).unwrap();
+        *i += 1;
+        Some(item)
     }
 }
 
