@@ -1,90 +1,46 @@
 version: 2.1
-orbs:
-  aws-cli: circleci/aws-cli@0.1.13
 jobs:
   build:
     docker:
-      - image: amazonlinux:latest
-    # working_directory: /tmp/my-project
+      - image: rust:latest
     steps:
-      - add_ssh_keys:
-          fingerprints:
-            - "b8:13:c3:67:7d:35:f1:c1:6c:e4:9d:d6:48:33:4a:34"
-      - run:
-          name: Install git
-          command: yum install -y git
       - checkout
       - run:
-          name: Install rustup
+          name: Generate lockfile
           command: |
-            # TODO: don't reinstall rustup if it's not necessary, it will
-            # invalidate all the cache.
-            yum install -y wget tar
-            if [ ! -d /root/.rustup ]
-            then
-              echo "Installing rustup"
-              curl -f -L https://static.rust-lang.org/rustup.sh -O
-              chmod 755 rustup.sh
-              ./rustup.sh -y
-              ~/.cargo/bin/rustup default stable
-            else
-              echo "rustup already installed"
-            fi
+            cargo generate-lockfile
       - restore_cache:
           keys:
-            - deps6-cargo-{{ checksum "Cargo.toml" }}
-            - deps6-cargo
+            - deps7-build-{{ checksum "Cargo.lock" }}
+            - deps7-build
       - run:
           name: Build
           command: |
-            yum install -y gcc make
-            ~/.cargo/bin/rustup default stable
-            ~/.cargo/bin/cargo build --release
+            cargo build --release
       - save_cache:
-          key: deps6-cargo-{{ checksum "Cargo.toml" }}
+          key: deps7-build-{{ checksum "Cargo.lock" }}
           paths:
             - "target"
             - "~/.cargo"
   test:
     docker:
-      - image: amazonlinux:latest
-    # working_directory: /tmp/my-project
+      - image: rust:latest
     steps:
-      - add_ssh_keys:
-          fingerprints:
-            - "b8:13:c3:67:7d:35:f1:c1:6c:e4:9d:d6:48:33:4a:34"
-      - run:
-          name: Install git
-          command: yum install -y git
       - checkout
       - run:
-          name: Install rustup
+          name: Generate lockfile
           command: |
-            # TODO: don't reinstall rustup if it's not necessary, it will
-            # invalidate all the cache.
-            yum install -y wget tar
-            if [ ! -d /root/.rustup ]
-            then
-              echo "Installing rustup"
-              curl -f -L https://static.rust-lang.org/rustup.sh -O
-              chmod 755 rustup.sh
-              ./rustup.sh -y
-              ~/.cargo/bin/rustup default stable
-            else
-              echo "rustup already installed"
-            fi
+            cargo generate-lockfile
       - restore_cache:
           keys:
-            - deps6-cargo-{{ checksum "Cargo.lock" }}
-            - deps6-cargo
+            - deps7-test-{{ checksum "Cargo.lock" }}
+            - deps7-test
       - run:
-          name: Build Server
+          name: Test
           command: |
-            yum install -y gcc make
-            ~/.cargo/bin/rustup default stable
-            ~/.cargo/bin/cargo test
+            cargo test
       - save_cache:
-          key: deps6-cargo-{{ checksum "Cargo.lock" }}
+          key: deps7-test-{{ checksum "Cargo.lock" }}
           paths:
             - "target"
             - "~/.cargo"
