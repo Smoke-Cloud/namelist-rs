@@ -632,8 +632,16 @@ impl<R: Read> Iterator for NmlParser<R> {
                 // Tokenize the rest of the line.
                 let (i, mut tokens) = tokenize_nml(line).expect("could not tokenize");
                 assert_eq!(i,"");
-                let current_nml = self.current_nml.as_mut().expect("could not add to no current nml");
-                current_nml.1.append(&mut tokens);
+                self.buf.clear();
+                {
+                    let current_nml = self.current_nml.as_mut().expect("could not add to no current nml");
+                    current_nml.1.append(&mut tokens);
+                }
+                if self.current_nml.clone().unwrap().1.last() == Some(&Token::RightSlash) {
+                    let current_nml = self.current_nml.clone().unwrap();
+                    self.current_nml = None;
+                    break Some(current_nml.try_into().unwrap());
+                }
                 // If the line does not start with '&' it is either empty or a comment,
                 // so we just continue looping.
             }
@@ -759,6 +767,15 @@ mod tests {
     fn nml_iter() {
         let f = std::fs::File::open("room_fire.fds").expect("could not open test file");
         let parser = NmlParser::new(f);
+        for nml in parser {
+            println!("NML: {:?}", nml);
+        }
+    }
+
+    #[test]
+    fn regression_1() {
+        let input = "&SURF ID='Surface02', RGB=146,202,166, BACKING='VOID', MATL_ID(1,1)='STEEL', MATL_MASS_FRACTION(1,1)=1.0, THICKNESS(1)=0.003/\n! DUMP: NFRAMES: Output is dumped every 1.00 s";
+        let parser = NmlParser::new(std::io::Cursor::new(input));
         for nml in parser {
             println!("NML: {:?}", nml);
         }
