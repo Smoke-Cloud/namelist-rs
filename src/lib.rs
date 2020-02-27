@@ -631,7 +631,10 @@ impl<R: Read> Iterator for NmlParser<R> {
             if self.current_nml.is_some() {
                 // Tokenize the rest of the line.
                 let (i, tokens) = tokenize_nml(line).expect("could not tokenize");
-                assert_eq!(i,"");
+                // This assert is no longer true, as the line may still contain
+                // comments. It cannot contain a new namelist as a namelist must
+                // be the first thing on a line.
+                // assert_eq!(i,"");
                 self.buf.clear();
                 // Ignore everything after RightSlash
                 let mut trimmed_tokens = Vec::new();
@@ -675,7 +678,18 @@ pub enum Token {
 }
 
 pub fn tokenize_nml(i: &str) -> IResult<&str, Vec<Token>> {
-    many0(parse_token)(i)
+    let mut tokens = Vec::new();
+    let mut i = i;
+    loop {
+        let (adj, tok) = parse_token(i)?;
+        i = adj;
+        let end = tok == Token::RightSlash;
+        tokens.push(tok);
+        if i == "" || end {
+            break;
+        }
+    }
+    Ok((i, tokens))
 }
 
 // TODO: add source location
