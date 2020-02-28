@@ -229,7 +229,7 @@ impl TryFrom<ParameterValue> for bool {
 }
 
 impl TryFrom<ParameterValue> for String {
-    type Error = ();
+    type Error = &'static str;
 
     fn try_from(pv: ParameterValue) -> Result<Self, Self::Error> {
         match pv {
@@ -237,7 +237,7 @@ impl TryFrom<ParameterValue> for String {
                 let s_val: NmlString = s.parse().unwrap();
                 Ok(s_val.0)
             }
-            ParameterValue::Array(_) => panic!("expected string, not array"),
+            ParameterValue::Array(_) => Err("expected string, not array"),
         }
     }
 }
