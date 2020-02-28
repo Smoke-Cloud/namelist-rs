@@ -189,6 +189,8 @@ pub enum ParameterValue {
 
 impl ParameterValue {
     fn from(pos: Option<ParamPos>, tokens: Vec<Token>) -> Result<Self, ()> {
+        // Get rid of commas.
+        let tokens: Vec<Token> = tokens.into_iter().filter(|x| x != &Token::Comma).collect();
         match tokens.len() {
             0 => panic!("no tokens"),
             // We have a single value
