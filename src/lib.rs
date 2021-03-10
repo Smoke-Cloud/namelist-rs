@@ -26,14 +26,13 @@ pub struct Namelist {
 impl TryFrom<(String, Vec<Token>)> for Namelist {
     type Error = &'static str;
 
-    fn try_from(vals: (String, Vec<Token>)) -> Result<Self, Self::Error> {
-        debug!("converting from: {:?}", vals);
+    fn try_from((name,tokens): (String, Vec<Token>)) -> Result<Self, Self::Error> {
+        // debug!("converting from: {:?}", vals);
         let mut nml: Self = Self {
-            name: vals.0.clone(),
+            name,
             parameters: HashMap::new(),
         };
-        let tokens = vals.1;
-        debug!("tokens: {:?}", tokens);
+        // debug!("tokens: {:?}", tokens);
         let eq_split = EqualsSplitter::new(tokens.into_iter());
         for (param_name, pos_tokens, param_tokens) in eq_split {
             let param_name = if let Token::Str(s) = param_name {
@@ -46,7 +45,7 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
             } else {
                 None
             };
-            debug!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
+            // debug!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
             let parameter_values: ParameterValue = ParameterValue::from(pos, param_tokens).unwrap();
             nml.parameters
                 .entry(param_name.clone())
@@ -100,7 +99,7 @@ impl<'a> Iterator for EqualsSplitter {
     type Item = (Token, Vec<Token>, Vec<Token>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        debug!("current: {:?}", self);
+        // println!("current: {:?}", self);
         // If we have a prev value, we use that as the parameter name. If not we
         // use the first token in the iterator.
         let param_name = match &self.prev {
@@ -169,7 +168,7 @@ impl<'a> Iterator for EqualsSplitter {
                     }
                 }
             }
-            e => panic!("expected '=' found {:?}", e),
+            e => panic!("expected '=' found {:?} in {:?}", e,self.tokens),
         }
     }
 }
@@ -534,9 +533,8 @@ impl TryFrom<Vec<Token>> for ParamPos {
     type Error = ();
 
     fn try_from(tokens: Vec<Token>) -> Result<Self, Self::Error> {
-        let sections: Vec<&[Token]> = tokens.split(|x| x == &Token::Comma).collect();
+        let sections = tokens.split(|x| x == &Token::Comma);
         let ranges: Vec<Range> = sections
-            .into_iter()
             .map(|x| x.try_into().unwrap())
             .collect();
         match ranges.len() {
@@ -639,10 +637,7 @@ impl<R: Read> Iterator for NmlParser<R> {
                 // right position to get the next nml. This includes setting the
                 // "current_nml" buffer to None, and leaving the line buffer
                 // as-is.
-                if self.current_nml.is_some() {
-                    debug!("new nml before closing current");
-                    let current_nml = self.current_nml.clone().expect("no current nml");
-                    self.current_nml = None;
+                if let Some(current_nml) = self.current_nml.take() {
                     break Some(current_nml.try_into().unwrap());
                 }
                 // First, skip the ampersand character.
@@ -655,40 +650,28 @@ impl<R: Read> Iterator for NmlParser<R> {
                 line = i;
             }
 
-            if self.current_nml.is_some() {
-                // Tokenize the rest of the line.
-                let (i, tokens) = tokenize_nml(line).expect("could not tokenize");
-                // let tokens: Vec<Token> = Vec::new();
+            let mut end = false;
+            if let Some((_name, nml_tokens)) = self.current_nml.as_mut() {
+                // Tokenize the rest of the line, ignoring everything after RightSlash.
+                let mut tokens = tokenize_nml_new(line);
                 self.buf.clear();
-                // Ignore everything after RightSlash
-                let mut trimmed_tokens = Vec::new();
-                for token in tokens.into_iter() {
-                    if token == Token::RightSlash {
-                        trimmed_tokens.push(token);
-                        break;
-                    } else if token.starts_with("&") {
-                        break;
-                    } else {
-                        trimmed_tokens.push(token);
-                    }
-                }
-                let mut tokens: Vec<Token> = trimmed_tokens;
-                {
-                    let current_nml = self
-                        .current_nml
-                        .as_mut()
-                        .expect("could not add to current nml");
-                    current_nml.1.append(&mut tokens);
-                }
-                if self.current_nml.clone().unwrap().1.last() == Some(&Token::RightSlash) {
-                    let mut current_nml = self.current_nml.clone().unwrap();
+                // Append these tokens to the current Nml.
+                nml_tokens.append(&mut tokens);
+                // If the last token of the current Nml is RightSlash, then we know we are finished
+                // and can return it.
+                if nml_tokens.last() == Some(&Token::RightSlash) {
                     // Since we end in a right slash we want to remove it.
-                    current_nml.1.remove(current_nml.1.len() - 1);
-                    self.current_nml = None;
-                    break Some(current_nml.try_into().unwrap());
+                    nml_tokens.truncate(nml_tokens.len()-1);
+                    end = true;
                 }
                 // If the line does not start with '&' it is either empty or a comment,
                 // so we just continue looping.
+            } else {
+                // panic!("no current nml to append to");
+            }
+            if end {
+                let this_nml = self.current_nml.take().unwrap();
+                break Some(this_nml.try_into().unwrap());
             }
             self.buf.clear();
         }
@@ -720,6 +703,80 @@ impl Token {
             Token::Str(ref s) => s.starts_with(pat),
         }
     }
+}
+
+pub fn tokenize_nml_new(input: &str) -> Vec<Token> {
+    let mut tokens: Vec<Token> = Vec::new();
+    let mut start: usize = 0;
+    let mut in_quotes = false;
+    for (i, c) in input.char_indices() {
+        // println!("c: {}", c);
+        if !in_quotes && c.is_whitespace() {
+            let previous = &input[start..i];
+            if !previous.is_empty(){
+                tokens.push(Token::Str(String::from(previous)));
+            }
+            start += 1;
+            continue;
+        } else {
+            match c {
+                '\'' => {
+                    if in_quotes {
+                        // We're ending a quoted string
+                        tokens.push(Token::Str(String::from(&input[start..i + 1])));
+                        start = i + 1;
+                        in_quotes = false;
+                    } else {
+                        // We have begun a quoted string. Fortran (FDS at least) does not support
+                        // escapes, so we can just look for the next single quote.
+                        in_quotes = true;
+                    }
+                }
+                '=' => {
+                    push_previous(&mut tokens, &mut start, i, input);
+                    tokens.push(Token::Equals);
+                }
+                ',' => {
+                    push_previous(&mut tokens, &mut start, i, input);
+                    tokens.push(Token::Comma);
+                }
+                '(' => {
+                    push_previous(&mut tokens, &mut start, i, input);
+                    tokens.push(Token::LeftBracket);
+                }
+                ')' => {
+                    push_previous(&mut tokens, &mut start, i, input);
+                    tokens.push(Token::RightBracket);
+                }
+                ':' => {
+                    push_previous(&mut tokens, &mut start, i, input);
+                    tokens.push(Token::Colon);
+                }
+                '/' => {
+                    push_previous(&mut tokens, &mut start, i, input);
+                    tokens.push(Token::RightSlash);
+                    // Ignore everything after a RightSlash
+                    return tokens;
+                }
+                _ => (),
+            }
+        }
+    }
+    let end = &input[start..];
+    if !end.is_empty() {
+        tokens.push(Token::Str(String::from(end)));
+    }
+    tokens
+}
+
+fn push_previous(tokens: &mut Vec<Token>, start: &mut usize, i: usize, input: &str) {
+    // Push whatever was being looked at previously, if any
+    let previous = &input[*start..i];
+    if !previous.is_empty() {
+        tokens.push(Token::Str(String::from(previous)));
+    }
+    // Increment pointers
+    *start = i + 1;
 }
 
 pub fn tokenize_nml(i: &str) -> IResult<&str, Vec<Token>> {
