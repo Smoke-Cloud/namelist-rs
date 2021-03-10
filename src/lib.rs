@@ -1,11 +1,3 @@
-use log::debug;
-use nom::{
-    branch::alt,
-    character::complete::{alphanumeric1, anychar, char, none_of},
-    combinator::peek,
-    multi::{many0, many1},
-    IResult,
-};
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::io::Read;
@@ -27,12 +19,10 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
     type Error = &'static str;
 
     fn try_from((name, tokens): (String, Vec<Token>)) -> Result<Self, Self::Error> {
-        // debug!("converting from: {:?}", vals);
         let mut nml: Self = Self {
             name,
             parameters: HashMap::new(),
         };
-        // debug!("tokens: {:?}", tokens);
         let eq_split = EqualsSplitter::new(tokens.into_iter());
         for (param_name, pos_tokens, param_tokens) in eq_split {
             let param_name = if let Token::Str(s) = param_name {
@@ -45,7 +35,6 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
             } else {
                 None
             };
-            // debug!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
             let parameter_values: ParameterValue = ParameterValue::from(pos, param_tokens).unwrap();
             nml.parameters
                 .entry(param_name.clone())
@@ -109,10 +98,8 @@ impl<'a> Iterator for EqualsSplitter {
         if param_name.is_none() || param_name == Some(Token::RightSlash) {
             return None;
         }
-        debug!("param_name: {:?}", param_name);
         let mut pos_tokens = Vec::new();
         if let Some(&Token::LeftBracket) = self.tokens.peek() {
-            debug!("processing pos info");
             self.tokens.next().expect("err: abc");
             loop {
                 let t = self.tokens.next().expect("err: 15");
@@ -126,7 +113,6 @@ impl<'a> Iterator for EqualsSplitter {
         let mut param_tokens = Vec::new();
         match self.tokens.next().unwrap() {
             Token::Equals => {
-                debug!("next token is equals");
                 // Now we have the parameter name and equals, keep adding tokens
                 // until we get to the next equals or the end slash
                 loop {
@@ -134,10 +120,6 @@ impl<'a> Iterator for EqualsSplitter {
                         if let Some(some_token) = self.tokens.peek() {
                             match some_token {
                                 &Token::Equals | Token::LeftBracket => {
-                                    debug!(
-                                        "found equals or left bracket, current prev: {:?}",
-                                        self.prev
-                                    );
                                     // We have found the next equals, so we return what we have.
                                     return Some((
                                         param_name.expect("err: 19"),
@@ -150,15 +132,12 @@ impl<'a> Iterator for EqualsSplitter {
                         }
                     }
                     let token = self.tokens.next();
-                    debug!("next_token: {:?}", token);
                     if token.is_none() {
                         param_tokens.push(self.prev.clone().expect("no prev"));
                         self.prev = None;
                         return Some((param_name.expect("err: 17"), pos_tokens, param_tokens));
                     }
                     let token = token.expect("err: 18");
-                    debug!("processing token: {:?}", token);
-                    debug!("prev: {:?}", self.prev);
                     if let Some(prev) = self.prev.clone() {
                         self.prev = Some(token.clone());
                         param_tokens.push(prev);
@@ -366,59 +345,13 @@ impl FromStr for NmlString {
     }
 }
 
-pub fn parameter_name(i: &[u8]) -> IResult<&[u8], String> {
-    let (i, _) = peek(none_of("&=/( \r\n\t0123456789.,"))(i)?;
-    let (i, p_name) = many1(none_of("=/( \r\n\t.,"))(i)?;
-    Ok((i, p_name.into_iter().collect()))
-}
-
-pub fn parse_nml_name(i: &[u8]) -> IResult<&[u8], String> {
-    let (i, name) = alphanumeric1(i)?;
-    Ok((
-        i,
-        std::str::from_utf8(name)
-            .expect("namelist name is not valid utf8")
-            .to_string(),
-    ))
-}
-
-pub fn parse_nml_name_any<T>(i: T) -> IResult<T, String>
-where
-    T: nom::InputTakeAtPosition + nom::InputIter,
-    <T as nom::InputTakeAtPosition>::Item: nom::AsChar,
-    <T as nom::InputIter>::Item: nom::AsChar + Copy,
-{
-    use nom::AsChar;
-    let (i, name): (T, T) = alphanumeric1(i)?;
-    let mut v: Vec<char> = Vec::new();
-    for c in name.iter_elements() {
-        v.push(c.as_char())
+fn parse_nml_name_str(input: &str) -> (&str,&str) {
+    if let Some(n) = input.chars().position(|c|!c.is_alphanumeric()) {
+        let (a,b) = input.split_at(n);
+        (a,b)
+    } else {
+        (input,"")
     }
-    let name: String = v.into_iter().collect();
-    Ok((i, name))
-}
-
-pub fn parse_nml_name_str(i: &str) -> IResult<&str, String> {
-    let (i, name) = alphanumeric1(i)?;
-    Ok((i, String::from(name)))
-}
-
-pub fn quoted_string(i: &[u8]) -> IResult<&[u8], String> {
-    alt((quoted_string_single, quoted_string_double))(i)
-}
-
-pub fn quoted_string_single(i: &[u8]) -> IResult<&[u8], String> {
-    let (i, _start_quote) = char('\'')(i)?;
-    let (i, s) = many0(none_of("\'"))(i)?;
-    let (i, _end_quote) = char('\'')(i)?;
-    Ok((i, s.iter().collect()))
-}
-
-pub fn quoted_string_double(i: &[u8]) -> IResult<&[u8], String> {
-    let (i, _start_quote) = char('\"')(i)?;
-    let (i, s) = many0(none_of("\""))(i)?;
-    let (i, _end_quote) = char('\"')(i)?;
-    Ok((i, s.iter().collect()))
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -640,9 +573,9 @@ impl<R: Read> Iterator for NmlParser<R> {
                 // First, skip the ampersand character.
                 let i = &line[1..];
                 // Parse the type of NML.
-                let (i, nml_type) = parse_nml_name_str(i).expect("invalid namelist group");
+                let (nml_type, i) = parse_nml_name_str(i);
                 // Create an empty namelist to be parsing.
-                self.current_nml = Some((nml_type, Vec::new()));
+                self.current_nml = Some((nml_type.to_string(), Vec::new()));
                 // Make sure to set the start the start of the tokens.
                 line = i;
             }
@@ -650,7 +583,7 @@ impl<R: Read> Iterator for NmlParser<R> {
             let mut end = false;
             if let Some((_name, nml_tokens)) = self.current_nml.as_mut() {
                 // Tokenize the rest of the line, ignoring everything after RightSlash.
-                let mut tokens = tokenize_nml_new(line);
+                let mut tokens = tokenize_nml(line);
                 self.buf.clear();
                 // Append these tokens to the current Nml.
                 nml_tokens.append(&mut tokens);
@@ -706,7 +639,7 @@ impl Token {
     }
 }
 
-pub fn tokenize_nml_new(input: &str) -> Vec<Token> {
+fn tokenize_nml(input: &str) -> Vec<Token> {
     let mut tokens: Vec<Token> = Vec::new();
     let mut start: usize = 0;
     let mut in_quotes = false;
@@ -789,58 +722,6 @@ fn push_previous(tokens: &mut Vec<Token>, start: &mut usize, i: usize, input: &s
     *start = i + 1;
 }
 
-pub fn tokenize_nml(i: &str) -> IResult<&str, Vec<Token>> {
-    let mut tokens = Vec::new();
-    let mut i = i;
-    loop {
-        if i == "" {
-            break;
-        }
-        let (adj, tok) = parse_token(i)?;
-        i = adj;
-        let end = tok == Token::RightSlash;
-        tokens.push(tok);
-        if i == "" || end {
-            break;
-        }
-    }
-    Ok((i, tokens))
-}
-
-// TODO: add source location
-pub fn parse_token(i: &str) -> IResult<&str, Token> {
-    let i = i.trim();
-    let (i, first_char) = anychar(i)?;
-    match first_char {
-        '(' => Ok((i, Token::LeftBracket)),
-        ')' => Ok((i, Token::RightBracket)),
-        ':' => Ok((i, Token::Colon)),
-        '=' => Ok((i, Token::Equals)),
-        ',' => Ok((i, Token::Comma)),
-        '/' => Ok((i, Token::RightSlash)),
-        '\'' => {
-            // We have begun a quoted string. Fortran (FDS at least) does not
-            // support escapes, so we can just look for the next single quote.
-            let (i, mut others) = many0(nom::character::complete::none_of("'"))(i)?;
-            let mut chars = vec!['\''];
-            chars.append(&mut others);
-            let (i, end_c) = char('\'')(i)?;
-            chars.append(&mut vec![end_c]);
-            let string: String = chars.into_iter().collect();
-            Ok((i, Token::Str(string)))
-        }
-        c => {
-            // We have some other char and must continue until we reach some
-            // other type [():'=] or whitespace.
-            let (i, mut others) = many0(nom::character::complete::none_of(" \t\r\n():=',/"))(i)?;
-            let mut chars = vec![c];
-            chars.append(&mut others);
-            let string: String = chars.into_iter().collect();
-            Ok((i, Token::Str(string)))
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -882,21 +763,18 @@ mod tests {
     fn simple_tokens() {
         assert_eq!(
             tokenize_nml("TEMPERATURES(1:2)=273, 274"),
-            Ok((
-                "",
-                vec![
-                    Token::Str("TEMPERATURES".to_string()),
-                    Token::LeftBracket,
-                    Token::Str("1".to_string()),
-                    Token::Colon,
-                    Token::Str("2".to_string()),
-                    Token::RightBracket,
-                    Token::Equals,
-                    Token::Str("273".to_string()),
-                    Token::Comma,
-                    Token::Str("274".to_string()),
-                ]
-            ))
+            vec![
+                Token::Str("TEMPERATURES".to_string()),
+                Token::LeftBracket,
+                Token::Str("1".to_string()),
+                Token::Colon,
+                Token::Str("2".to_string()),
+                Token::RightBracket,
+                Token::Equals,
+                Token::Str("273".to_string()),
+                Token::Comma,
+                Token::Str("274".to_string()),
+            ]
         );
     }
 
@@ -904,45 +782,35 @@ mod tests {
     fn nml_iter() {
         let f = std::fs::File::open("tests/test_input.txt").expect("could not open test file");
         let parser = NmlParser::new(f);
-        for nml in parser {
-            debug!("NML: {:?}", nml);
-        }
+        for _ in parser {}
     }
 
     #[test]
     fn regression_1() {
         let input = "&SURF ID='Surface02', RGB=146,202,166, BACKING='VOID', MATL_ID(1,1)='STEEL', MATL_MASS_FRACTION(1,1)=1.0, THICKNESS(1)=0.003/\n! DUMP: NFRAMES: Output is dumped every 1.00 s";
         let parser = NmlParser::new(std::io::Cursor::new(input));
-        for nml in parser {
-            debug!("NML: {:?}", nml);
-        }
+        for _ in parser {}
     }
 
     #[test]
     fn regression_2() {
         let input = "&OBST XB=19,20,-1,1, 0,100 /  Left Facade";
         let parser = NmlParser::new(std::io::Cursor::new(input));
-        for nml in parser {
-            debug!("NML: {:?}", nml);
-        }
+        for _ in parser {}
     }
 
     #[test]
     fn regression_3() {
         let input = "&HEAD CHID='mean_forcing_hole', TITLE='Test HOLE feature for MEAN_FORCING'\n\n&MESH IJK=40,40,20, XB=-20,20,-20,20,0,10 /";
         let parser = NmlParser::new(std::io::Cursor::new(input));
-        for nml in parser {
-            debug!("NML: {:?}", nml);
-        }
+        for _ in parser {}
     }
 
     #[test]
     fn trailing_ampersand() {
         let input = "&TAIL &";
         let parser = NmlParser::new(std::io::Cursor::new(input));
-        for nml in parser {
-            debug!("NML: {:?}", nml);
-        }
+        for _ in parser {}
     }
 
     #[test]
@@ -957,8 +825,7 @@ mod tests {
             Token::Str("\'Test HOLE feature for MEAN_FORCING\'".to_string()),
         ];
         let eq_split = EqualsSplitter::new(tokens.into_iter());
-        for pair in eq_split {
-            debug!("pair: {:?}", pair);
+        for _ in eq_split {
         }
     }
 
