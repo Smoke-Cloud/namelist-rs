@@ -658,10 +658,7 @@ impl<R: Read> Iterator for NmlParser<R> {
             if self.current_nml.is_some() {
                 // Tokenize the rest of the line.
                 let (i, tokens) = tokenize_nml(line).expect("could not tokenize");
-                // This assert is no longer true, as the line may still contain
-                // comments. It cannot contain a new namelist as a namelist must
-                // be the first thing on a line.
-                // assert_eq!(i,"");
+                // let tokens: Vec<Token> = Vec::new();
                 self.buf.clear();
                 // Ignore everything after RightSlash
                 let mut trimmed_tokens = Vec::new();
