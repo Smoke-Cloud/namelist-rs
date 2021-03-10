@@ -26,7 +26,7 @@ pub struct Namelist {
 impl TryFrom<(String, Vec<Token>)> for Namelist {
     type Error = &'static str;
 
-    fn try_from((name,tokens): (String, Vec<Token>)) -> Result<Self, Self::Error> {
+    fn try_from((name, tokens): (String, Vec<Token>)) -> Result<Self, Self::Error> {
         // debug!("converting from: {:?}", vals);
         let mut nml: Self = Self {
             name,
@@ -99,6 +99,7 @@ impl<'a> Iterator for EqualsSplitter {
     type Item = (Token, Vec<Token>, Vec<Token>);
 
     fn next(&mut self) -> Option<Self::Item> {
+        println!("current: {:?}", self);
         // If we have a prev value, we use that as the parameter name. If not we
         // use the first token in the iterator.
         let param_name = match &self.prev {
@@ -167,7 +168,7 @@ impl<'a> Iterator for EqualsSplitter {
                     }
                 }
             }
-            e => panic!("expected '=' found {:?} in {:?}", e,self.tokens),
+            e => panic!("expected '=' found {:?} in {:?}", e, self.tokens),
         }
     }
 }
@@ -533,9 +534,7 @@ impl TryFrom<Vec<Token>> for ParamPos {
 
     fn try_from(tokens: Vec<Token>) -> Result<Self, Self::Error> {
         let sections = tokens.split(|x| x == &Token::Comma);
-        let ranges: Vec<Range> = sections
-            .map(|x| x.try_into().unwrap())
-            .collect();
+        let ranges: Vec<Range> = sections.map(|x| x.try_into().unwrap()).collect();
         match ranges.len() {
             // We have a single-dimensional value
             1 => Ok(ParamPos::OneDim(ranges[0])),
@@ -658,13 +657,15 @@ impl<R: Read> Iterator for NmlParser<R> {
                 nml_tokens.append(&mut tokens);
                 // If the last token of the current Nml is RightSlash or Ampersand, then we know we are finished
                 // and can return it.
-                if nml_tokens.last() == Some(&Token::RightSlash) || nml_tokens.last() == Some(&Token::Ampersand) {
+                if nml_tokens.last() == Some(&Token::RightSlash)
+                    || nml_tokens.last() == Some(&Token::Ampersand)
+                {
                     // Since we end in a right slash we want to remove it.
-                    nml_tokens.truncate(nml_tokens.len()-1);
+                    nml_tokens.truncate(nml_tokens.len() - 1);
                     end = true;
                 }
-                // If the line does not start with '&' it is either empty or a comment,
-                // so we just continue looping.
+            // If the line does not start with '&' it is either empty or a comment,
+            // so we just continue looping.
             } else {
                 // panic!("no current nml to append to");
             }
@@ -713,24 +714,28 @@ pub fn tokenize_nml_new(input: &str) -> Vec<Token> {
     for (i, c) in input.char_indices() {
         if !in_quotes && c.is_whitespace() {
             let previous = &input[start..i];
-            if !previous.is_empty(){
+            if !previous.is_empty() {
                 tokens.push(Token::Str(String::from(previous)));
             }
-            start = i+1;
+            start = i + 1;
             continue;
-        } else {
+        } else if in_quotes {
             match c {
                 '\'' => {
-                    if in_quotes {
-                        // We're ending a quoted string
-                        tokens.push(Token::Str(String::from(&input[start..i + 1])));
-                        start = i + 1;
-                        in_quotes = false;
-                    } else {
-                        // We have begun a quoted string. Fortran (FDS at least) does not support
-                        // escapes, so we can just look for the next single quote.
-                        in_quotes = true;
-                    }
+                    // We're ending a quoted string
+                    tokens.push(Token::Str(String::from(&input[start..i + 1])));
+                    start = i + 1;
+                    in_quotes = false;
+                }
+                _ => (),
+            }
+        } else {
+            // In this branch we are not within a quoted string.z
+            match c {
+                '\'' => {
+                    // We have begun a quoted string. Fortran (FDS at least) does not support
+                    // escapes, so we can just look for the next single quote.
+                    in_quotes = true;
                 }
                 '=' => {
                     push_previous(&mut tokens, &mut start, i, input);
@@ -965,8 +970,14 @@ mod tests {
         let first_nml = &nmls[0];
         assert_eq!("SURF", first_nml.name);
         assert!(first_nml.parameters.contains_key("THICKNESS"));
-        assert_eq!(first_nml.parameters.get("THICKNESS").unwrap(), &ParameterValue::Atom("0.005".to_string()));
+        assert_eq!(
+            first_nml.parameters.get("THICKNESS").unwrap(),
+            &ParameterValue::Atom("0.005".to_string())
+        );
         assert!(first_nml.parameters.contains_key("EXTERNAL_FLUX"));
-        assert_eq!(first_nml.parameters.get("EXTERNAL_FLUX").unwrap(), &ParameterValue::Atom("50.0".to_string()));
+        assert_eq!(
+            first_nml.parameters.get("EXTERNAL_FLUX").unwrap(),
+            &ParameterValue::Atom("50.0".to_string())
+        );
     }
 }
