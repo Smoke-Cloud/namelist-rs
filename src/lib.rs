@@ -99,7 +99,7 @@ impl<'a> Iterator for EqualsSplitter {
     type Item = (Token, Vec<Token>, Vec<Token>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        // println!("current: {:?}", self);
+        println!("current: {:?}", self);
         // If we have a prev value, we use that as the parameter name. If not we
         // use the first token in the iterator.
         let param_name = match &self.prev {
@@ -710,13 +710,12 @@ pub fn tokenize_nml_new(input: &str) -> Vec<Token> {
     let mut start: usize = 0;
     let mut in_quotes = false;
     for (i, c) in input.char_indices() {
-        // println!("c: {}", c);
         if !in_quotes && c.is_whitespace() {
             let previous = &input[start..i];
             if !previous.is_empty(){
                 tokens.push(Token::Str(String::from(previous)));
             }
-            start += 1;
+            start = i+1;
             continue;
         } else {
             match c {
@@ -892,7 +891,7 @@ mod tests {
 
     #[test]
     fn nml_iter() {
-        let f = std::fs::File::open("test/test_input.txt").expect("could not open test file");
+        let f = std::fs::File::open("tests/test_input.txt").expect("could not open test file");
         let parser = NmlParser::new(f);
         for nml in parser {
             debug!("NML: {:?}", nml);
@@ -941,5 +940,17 @@ mod tests {
         for pair in eq_split {
             debug!("pair: {:?}", pair);
         }
+    }
+
+    #[test]
+    fn float_error_test() {
+        let input = "&SURF THICKNESS = 0.005 EXTERNAL_FLUX = 50.0 /";
+        let nmls: Vec<Namelist> = NmlParser::new(std::io::Cursor::new(input)).collect();
+        let first_nml = &nmls[0];
+        assert_eq!("SURF", first_nml.name);
+        assert!(first_nml.parameters.contains_key("THICKNESS"));
+        assert_eq!(first_nml.parameters.get("THICKNESS").unwrap(), &ParameterValue::Atom("0.005".to_string()));
+        assert!(first_nml.parameters.contains_key("EXTERNAL_FLUX"));
+        assert_eq!(first_nml.parameters.get("EXTERNAL_FLUX").unwrap(), &ParameterValue::Atom("50.0".to_string()));
     }
 }

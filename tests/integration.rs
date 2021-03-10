@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod integration {
+    // This test is for benchmarking on large files.
+    #[ignore]
     #[test]
     fn parse_file_test_a() {
         let input = include_str!("TestD.fds");
