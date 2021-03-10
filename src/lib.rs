@@ -99,7 +99,6 @@ impl<'a> Iterator for EqualsSplitter {
     type Item = (Token, Vec<Token>, Vec<Token>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        println!("current: {:?}", self);
         // If we have a prev value, we use that as the parameter name. If not we
         // use the first token in the iterator.
         let param_name = match &self.prev {
