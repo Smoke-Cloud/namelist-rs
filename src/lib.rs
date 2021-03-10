@@ -657,9 +657,9 @@ impl<R: Read> Iterator for NmlParser<R> {
                 self.buf.clear();
                 // Append these tokens to the current Nml.
                 nml_tokens.append(&mut tokens);
-                // If the last token of the current Nml is RightSlash, then we know we are finished
+                // If the last token of the current Nml is RightSlash or Ampersand, then we know we are finished
                 // and can return it.
-                if nml_tokens.last() == Some(&Token::RightSlash) {
+                if nml_tokens.last() == Some(&Token::RightSlash) || nml_tokens.last() == Some(&Token::Ampersand) {
                     // Since we end in a right slash we want to remove it.
                     nml_tokens.truncate(nml_tokens.len()-1);
                     end = true;
@@ -686,6 +686,7 @@ pub enum Token {
     Colon,
     Comma,
     RightSlash,
+    Ampersand,
     /// Some variable string that forms a token. Currently this could also
     /// include numbers.
     Str(String),
@@ -700,6 +701,7 @@ impl Token {
             Token::Colon => pat == ":",
             Token::Comma => pat == ",",
             Token::RightSlash => pat == "/",
+            Token::Ampersand => pat == "&",
             Token::Str(ref s) => s.starts_with(pat),
         }
     }
@@ -755,6 +757,12 @@ pub fn tokenize_nml_new(input: &str) -> Vec<Token> {
                     push_previous(&mut tokens, &mut start, i, input);
                     tokens.push(Token::RightSlash);
                     // Ignore everything after a RightSlash
+                    return tokens;
+                }
+                '&' => {
+                    push_previous(&mut tokens, &mut start, i, input);
+                    tokens.push(Token::Ampersand);
+                    // Ignore everything after an Ampersand
                     return tokens;
                 }
                 _ => (),
@@ -919,6 +927,15 @@ mod tests {
     #[test]
     fn regression_3() {
         let input = "&HEAD CHID='mean_forcing_hole', TITLE='Test HOLE feature for MEAN_FORCING'\n\n&MESH IJK=40,40,20, XB=-20,20,-20,20,0,10 /";
+        let parser = NmlParser::new(std::io::Cursor::new(input));
+        for nml in parser {
+            debug!("NML: {:?}", nml);
+        }
+    }
+
+    #[test]
+    fn trailing_ampersand() {
+        let input = "&TAIL &";
         let parser = NmlParser::new(std::io::Cursor::new(input));
         for nml in parser {
             debug!("NML: {:?}", nml);
