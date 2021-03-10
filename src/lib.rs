@@ -1,18 +1,16 @@
-use std::collections::HashMap;
-use std::io::Read;
-use std::io::{BufRead, BufReader};
-use std::convert::{TryFrom, TryInto};
 use log::debug;
-use std::str::FromStr;
 use nom::{
     branch::alt,
-    character::complete::{
-        alphanumeric1, anychar, char, none_of,
-    },
-    combinator::{peek},
+    character::complete::{alphanumeric1, anychar, char, none_of},
+    combinator::peek,
     multi::{many0, many1},
     IResult,
 };
+use std::collections::HashMap;
+use std::convert::{TryFrom, TryInto};
+use std::io::Read;
+use std::io::{BufRead, BufReader};
+use std::str::FromStr;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NamelistFile {
@@ -49,7 +47,8 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
             };
             debug!("pair: {}({:?}): - {:?}", param_name, pos, param_tokens);
             let parameter_values: ParameterValue = ParameterValue::from(pos, param_tokens).unwrap();
-            nml.parameters.entry(param_name.clone())
+            nml.parameters
+                .entry(param_name.clone())
                 .and_modify(|param| {
                     combine_param(param, &parameter_values);
                 })
@@ -63,19 +62,21 @@ fn combine_param(p1: &mut ParameterValue, p2: &ParameterValue) {
     match (p1, p2) {
         // If it's an atom, just replace it. If we're replacing an atom with an
         // array, this shouldn't happen, but just overwrite.
-        (p1@ParameterValue::Atom(_), _) => p1.clone_from(p2),
+        (p1 @ ParameterValue::Atom(_), _) => p1.clone_from(p2),
         // An atom replacing an array should also not happen, but do it.
-        (p1@ParameterValue::Array(_), ParameterValue::Atom(_)) => p1.clone_from(p2),
+        (p1 @ ParameterValue::Array(_), ParameterValue::Atom(_)) => p1.clone_from(p2),
         // If it's an array, combine and overwrite.
-        (ParameterValue::Array(ref mut original_array),ParameterValue::Array(ref new_array)) => combine_arrays(original_array, new_array),
+        (ParameterValue::Array(ref mut original_array), ParameterValue::Array(ref new_array)) => {
+            combine_arrays(original_array, new_array)
+        }
     }
 }
 
 /// Add the elements of a2 to a1, overwriting where necessary
 /// TODO: use entry API
 fn combine_arrays(a1: &mut HashMap<Vec<i64>, String>, a2: &HashMap<Vec<i64>, String>) {
-    for (k,v) in a2.iter() {
-        a1.insert(k.clone(),v.clone());
+    for (k, v) in a2.iter() {
+        a1.insert(k.clone(), v.clone());
     }
 }
 
@@ -117,7 +118,6 @@ impl<'a> Iterator for EqualsSplitter {
                     pos_tokens.push(t);
                 }
             }
-
         }
         match self.tokens.next().unwrap() {
             Token::Equals => {
@@ -129,7 +129,10 @@ impl<'a> Iterator for EqualsSplitter {
                         if let Some(some_token) = self.tokens.peek() {
                             match some_token {
                                 &Token::Equals | Token::LeftBracket => {
-                                    debug!("found equals or left bracket, current prev: {:?}", self.prev);
+                                    debug!(
+                                        "found equals or left bracket, current prev: {:?}",
+                                        self.prev
+                                    );
                                     // We have found the next equals, so we return what we have.
                                     return Some((param_name.unwrap(), pos_tokens, param_tokens));
                                 }
@@ -149,13 +152,11 @@ impl<'a> Iterator for EqualsSplitter {
                     } else {
                         self.prev = Some(token.clone());
                     }
-
                 }
-            },
+            }
             e => panic!("expected '=' found {:?}", e),
         }
     }
-
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -168,11 +169,10 @@ pub struct Parameter {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParameterValue {
     Atom(String),
-    Array(HashMap<Vec<i64>,String>),
+    Array(HashMap<Vec<i64>, String>),
 }
 
 impl ParameterValue {
-
     fn from(pos: Option<ParamPos>, tokens: Vec<Token>) -> Result<Self, ()> {
         match tokens.len() {
             0 => panic!("no tokens"),
@@ -180,17 +180,22 @@ impl ParameterValue {
             1 => Ok(into_parameter_value_atom(tokens[0].clone())),
             // We have many values
             _many => {
-                let vals: Vec<String> = tokens.into_iter().filter(|x| x != &Token::Comma).map(|x| match x {
-                    Token::Str(s) => s,
-                    v =>  panic!("invalid array value: {:?}", v),
-                }).collect();
+                println!("tokens: {:?}", tokens);
+                let vals: Vec<String> = tokens
+                    .into_iter()
+                    .filter(|x| x != &Token::Comma)
+                    .map(|x| match x {
+                        Token::Str(s) => s,
+                        v => panic!("invalid array value: {:?}", v),
+                    })
+                    .collect();
                 let mut value_map: HashMap<Vec<i64>, String> = HashMap::new();
                 let indices = pos.map(|p| p.iter()).unwrap_or(ParamPos::default_iter());
                 for (is, value) in indices.zip(vals.into_iter()) {
                     value_map.insert(is.into_iter().map(|x| x as i64).collect(), value);
                 }
                 Ok(ParameterValue::Array(value_map))
-            },
+            }
         }
     }
 }
@@ -203,13 +208,11 @@ impl TryFrom<ParameterValue> for bool {
             ParameterValue::Atom(s) => {
                 let s_val: NmlBool = s.parse().unwrap();
                 Ok(s_val.0)
-            },
+            }
             ParameterValue::Array(_) => panic!("expected bool, not array"),
         }
     }
 }
-
-
 
 impl TryFrom<ParameterValue> for String {
     type Error = ();
@@ -219,12 +222,11 @@ impl TryFrom<ParameterValue> for String {
             ParameterValue::Atom(s) => {
                 let s_val: NmlString = s.parse().unwrap();
                 Ok(s_val.0)
-            },
+            }
             ParameterValue::Array(_) => panic!("expected string, not array"),
         }
     }
 }
-
 
 impl TryFrom<ParameterValue> for u64 {
     type Error = ();
@@ -234,7 +236,7 @@ impl TryFrom<ParameterValue> for u64 {
             ParameterValue::Atom(s) => {
                 let s_val: NmlUint = s.parse().unwrap();
                 Ok(s_val.0)
-            },
+            }
             ParameterValue::Array(_) => panic!("expected unsigned integer, not array"),
         }
     }
@@ -248,7 +250,7 @@ impl TryFrom<ParameterValue> for i64 {
             ParameterValue::Atom(s) => {
                 let s_val: NmlInt = s.parse().unwrap();
                 Ok(s_val.0)
-            },
+            }
             ParameterValue::Array(_) => panic!("expected signed integer, not array"),
         }
     }
@@ -262,7 +264,7 @@ impl TryFrom<ParameterValue> for f64 {
             ParameterValue::Atom(s) => {
                 let s_val: NmlFloat = s.parse().unwrap();
                 Ok(s_val.0)
-            },
+            }
             ParameterValue::Array(_) => panic!("expected float, not array"),
         }
     }
@@ -327,7 +329,6 @@ impl FromStr for NmlUint {
     }
 }
 
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct NmlFloat(f64);
 
@@ -338,7 +339,6 @@ impl FromStr for NmlFloat {
         Ok(NmlFloat(s.parse().unwrap()))
     }
 }
-
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NmlString(String);
@@ -373,26 +373,20 @@ where
     T: nom::InputTakeAtPosition + nom::InputIter,
     <T as nom::InputTakeAtPosition>::Item: nom::AsChar,
     <T as nom::InputIter>::Item: nom::AsChar + Copy,
-    {
+{
     use nom::AsChar;
-    let (i, name): (T,T) = alphanumeric1(i)?;
+    let (i, name): (T, T) = alphanumeric1(i)?;
     let mut v: Vec<char> = Vec::new();
     for c in name.iter_elements() {
         v.push(c.as_char())
     }
     let name: String = v.into_iter().collect();
-    Ok((
-        i,
-        name
-    ))
+    Ok((i, name))
 }
 
 pub fn parse_nml_name_str(i: &str) -> IResult<&str, String> {
     let (i, name) = alphanumeric1(i)?;
-    Ok((
-        i,
-        String::from(name)
-    ))
+    Ok((i, String::from(name)))
 }
 
 pub fn quoted_string(i: &[u8]) -> IResult<&[u8], String> {
@@ -449,10 +443,18 @@ impl ParamPos {
                 counting_index: 0,
                 max: Some(*n2 as usize),
             },
-            ParamPos::TwoDim(Range::Numberless, Range::Numberless) => panic!("single dimensions at a time"),
-            ParamPos::TwoDim(Range::TwoNumber(_,_), Range::Numberless) => panic!("single dimensions at a time"),
-            ParamPos::TwoDim(Range::Numberless, Range::TwoNumber(_,_)) => panic!("single dimensions at a time"),
-            ParamPos::TwoDim(Range::TwoNumber(_,_), Range::TwoNumber(_,_)) => panic!("single dimensions at a time"),
+            ParamPos::TwoDim(Range::Numberless, Range::Numberless) => {
+                panic!("single dimensions at a time")
+            }
+            ParamPos::TwoDim(Range::TwoNumber(_, _), Range::Numberless) => {
+                panic!("single dimensions at a time")
+            }
+            ParamPos::TwoDim(Range::Numberless, Range::TwoNumber(_, _)) => {
+                panic!("single dimensions at a time")
+            }
+            ParamPos::TwoDim(Range::TwoNumber(_, _), Range::TwoNumber(_, _)) => {
+                panic!("single dimensions at a time")
+            }
             ParamPos::TwoDim(Range::SingleNumber(n), Range::Numberless) => PosIter {
                 indices: vec![*n as usize, 1],
                 counting_index: 1,
@@ -463,12 +465,12 @@ impl ParamPos {
                 counting_index: 0,
                 max: None,
             },
-            ParamPos::TwoDim(Range::SingleNumber(n), Range::TwoNumber(start,end)) => PosIter {
+            ParamPos::TwoDim(Range::SingleNumber(n), Range::TwoNumber(start, end)) => PosIter {
                 indices: vec![*n as usize, *start as usize],
                 counting_index: 1,
                 max: Some(*end as usize),
             },
-            ParamPos::TwoDim(Range::TwoNumber(start,end), Range::SingleNumber(n)) => PosIter {
+            ParamPos::TwoDim(Range::TwoNumber(start, end), Range::SingleNumber(n)) => PosIter {
                 indices: vec![*start as usize, *n as usize],
                 counting_index: 0,
                 max: Some(*end as usize),
@@ -485,7 +487,7 @@ impl ParamPos {
         PosIter {
             indices: vec![1],
             counting_index: 0,
-            max: None
+            max: None,
         }
     }
 }
@@ -493,7 +495,7 @@ impl ParamPos {
 pub struct PosIter {
     indices: Vec<usize>,
     counting_index: usize,
-    max: Option<usize>
+    max: Option<usize>,
 }
 
 impl Iterator for PosIter {
@@ -517,7 +519,10 @@ impl TryFrom<Vec<Token>> for ParamPos {
 
     fn try_from(tokens: Vec<Token>) -> Result<Self, Self::Error> {
         let sections: Vec<&[Token]> = tokens.split(|x| x == &Token::Comma).collect();
-        let ranges: Vec<Range> = sections.into_iter().map(|x| x.try_into().unwrap()).collect();
+        let ranges: Vec<Range> = sections
+            .into_iter()
+            .map(|x| x.try_into().unwrap())
+            .collect();
         match ranges.len() {
             // We have a single-dimensional value
             1 => Ok(ParamPos::OneDim(ranges[0])),
@@ -554,7 +559,9 @@ impl TryFrom<&[Token]> for Range {
         match tokens {
             [Token::Colon] => Ok(Range::Numberless),
             [Token::Str(s)] => Ok(Range::SingleNumber(s.parse().unwrap())),
-            [Token::Str(s1), Token::Colon, Token::Str(s2)] => Ok(Range::TwoNumber(s1.parse().unwrap(), s2.parse().unwrap())),
+            [Token::Str(s1), Token::Colon, Token::Str(s2)] => {
+                Ok(Range::TwoNumber(s1.parse().unwrap(), s2.parse().unwrap()))
+            }
             _ => panic!("too many elements for range"),
         }
     }
@@ -588,13 +595,16 @@ impl<R: Read> Iterator for NmlParser<R> {
             return None;
         }
         // Iterate through all the lines, parsing as we go. Each loop iteration is
-        // for a single namespace.
+        // for a single namelist.
         loop {
             // If we already have a line in the buffer, use that, else get a new
             // one.
             if self.buf.len() == 0 {
                 // Get a new line.
-                let n = self.reader.read_line(&mut self.buf).expect("read_line failed");
+                let n = self
+                    .reader
+                    .read_line(&mut self.buf)
+                    .expect("read_line failed");
                 if n == 0 {
                     // There is no data left. If we have a current nml, we
                     // return that, otherwise we just return None.
@@ -603,10 +613,8 @@ impl<R: Read> Iterator for NmlParser<R> {
                 }
             }
             let mut line: &str = self.buf.trim();
-            // debug!("line: {}", line);
             // If the line (after whitespace) begins with an ampersand, it is a new
             // namelist.
-
             if line.starts_with("&") {
                 // If we currently have an nml we are working on, return that.
                 // We need to make sure that on the next iteration we are in the
@@ -626,12 +634,16 @@ impl<R: Read> Iterator for NmlParser<R> {
                 self.current_nml = Some((nml_type, Vec::new()));
                 // Make sure to set the start the start of the tokens.
                 line = i;
+            } else if line.starts_with('!') {
+                // Skip comments
+                self.buf.clear();
+                continue;
             }
 
             if self.current_nml.is_some() {
                 // Tokenize the rest of the line.
-                let (i, mut tokens) = tokenize_nml(line).expect("could not tokenize");
-                assert_eq!(i,"");
+                let mut tokens = tokenize_nml(line);
+                // assert_eq!(i,"");
                 let current_nml = self.current_nml.as_mut().expect("could not add to no current nml");
                 current_nml.1.append(&mut tokens);
                 // If the line does not start with '&' it is either empty or a comment,
@@ -655,43 +667,85 @@ pub enum Token {
     Str(String),
 }
 
-pub fn tokenize_nml(i: &str) -> IResult<&str, Vec<Token>> {
-    many0(parse_token)(i)
-}
-
-// TODO: add source location
-pub fn parse_token(i: &str) -> IResult<&str, Token> {
-    let i = i.trim();
-    let (i, first_char) = anychar(i)?;
-    match first_char {
-        '(' => Ok((i, Token::LeftBracket)),
-        ')' => Ok((i, Token::RightBracket)),
-        ':' => Ok((i, Token::Colon)),
-        '=' => Ok((i, Token::Equals)),
-        ',' => Ok((i, Token::Comma)),
-        '/' => Ok((i, Token::RightSlash)),
-        '\'' => {
-            // We have begun a quoted string. Fortran (FDS at least) does not
-            // support escapes, so we can just look for the next single quote.
-            let (i, mut others) = many0(nom::character::complete::none_of("'"))(i)?;
-            let mut chars = vec!['\''];
-            chars.append(&mut others);
-            let (i, end_c) = char('\'')(i)?;
-            chars.append(&mut vec![end_c]);
-            let string: String = chars.into_iter().collect();
-            Ok((i, Token::Str(string)))
-        },
-        c => {
-            // We have some other char and must continue until we reach some
-            // other type [():'=] or whitespace.
-            let (i, mut others) = many0(nom::character::complete::none_of(" \t\r\n():=',/"))(i)?;
-            let mut chars = vec![c];
-            chars.append(&mut others);
-            let string: String = chars.into_iter().collect();
-            Ok((i, Token::Str(string)))
+pub fn tokenize_nml(input: &str) -> Vec<&str> {
+    let mut tokens: Vec<&str> = Vec::new();
+    let mut start: usize = 0;
+    let mut in_quotes = false;
+    // We have begun a quoted string. Fortran (FDS at least) does not support
+    // escapes, so we can just look for the next single quote.
+    for (i, c) in input.char_indices() {
+        // println!("c: {}", c);
+        if !in_quotes && c.is_whitespace() {
+            start += 1;
+            continue;
+        } else {
+            match c {
+                '\'' => {
+                    if in_quotes {
+                        // We're ending a quoted string
+                        tokens.push(&input[start..i + 1]);
+                        start = i + 1;
+                        in_quotes = false;
+                    } else {
+                        // We want to begin some quotes
+                        in_quotes = true;
+                    }
+                }
+                '=' | ',' | '(' | ')' | ':' | '/' => {
+                    let previous = &input[start..i];
+                    if !previous.is_empty() {
+                        tokens.push(previous);
+                    }
+                    tokens.push(&input[i..=i]);
+                    start = i + 1;
+                }
+                _ => (),
+            }
         }
     }
+    let end = &input[start..];
+    if !end.is_empty() {
+        tokens.push(end);
+    }
+    tokens
 }
+
+// // TODO: add source location
+// pub fn parse_token(i: &str) -> IResult<&str, Token> {
+//     let i = i.trim();
+//     let (i, first_char) = anychar(i)?;
+//     match first_char {
+//         '(' => Ok((i, Token::LeftBracket)),
+//         ')' => Ok((i, Token::RightBracket)),
+//         ':' => Ok((i, Token::Colon)),
+//         '=' => Ok((i, Token::Equals)),
+//         ',' => Ok((i, Token::Comma)),
+//         '/' => Ok((i, Token::RightSlash)),
+//         '\'' => {
+//             // We have begun a quoted string. Fortran (FDS at least) does not
+//             // support escapes, so we can just look for the next single quote.
+//             for c in i.char_indices() {
+//                 i.ch
+//             }
+//             let (i, mut others) = many0(nom::character::complete::none_of("'"))(i)?;
+//             let mut chars = vec!['\''];
+//             chars.append(&mut others);
+//             let (i, end_c) = char('\'')(i)?;
+//             chars.append(&mut vec![end_c]);
+//             let string: &str = chars.into_iter().collect();
+//             Ok((i, Token::Str(string)))
+//         },
+//         c => {
+//             // We have some other char and must continue until we reach some
+//             // other type [():'=] or whitespace.
+//             let (i, mut others) = many0(nom::character::complete::none_of(" \t\r\n():=',/"))(i)?;
+//             let mut chars = vec![c];
+//             chars.append(&mut others);
+//             let string: String = chars.into_iter().collect();
+//             Ok((i, Token::Str(string)))
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -721,10 +775,7 @@ mod tests {
 
     #[test]
     fn string_examples() {
-        assert_eq!(
-            "\'hello\'".parse(),
-            Ok(NmlString("hello".to_string()))
-        );
+        assert_eq!("\'hello\'".parse(), Ok(NmlString("hello".to_string())));
     }
 
     #[test]
@@ -734,24 +785,31 @@ mod tests {
     }
 
     #[test]
-    fn simple_tokens() {
+    fn simple_tokens1() {
+        let s = "abc=2,'ad c' (2,:)";
+        let tokens = tokenize_nml(s);
+        assert_eq!(
+            vec!["abc", "=", "2", ",", "'ad c'", "(", "2", ",", ":", ")"],
+            tokens
+        );
+    }
+
+    #[test]
+    fn simple_tokens2() {
         assert_eq!(
             tokenize_nml("TEMPERATURES(1:2)=273, 274"),
-            Ok((
-                "",
-                vec![
-                    Token::Str("TEMPERATURES".to_string()),
-                    Token::LeftBracket,
-                    Token::Str("1".to_string()),
-                    Token::Colon,
-                    Token::Str("2".to_string()),
-                    Token::RightBracket,
-                    Token::Equals,
-                    Token::Str("273".to_string()),
-                    Token::Comma,
-                    Token::Str("274".to_string()),
-                ]
-            ))
+            vec![
+                "TEMPERATURES",
+                "(",
+                "1",
+                ":",
+                "2",
+                ")",
+                "=",
+                "273",
+                ",",
+                "274",
+            ]
         );
     }
 
