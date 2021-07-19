@@ -1,3 +1,4 @@
+use std::num::TryFromIntError;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::io::Read;
@@ -217,6 +218,20 @@ impl TryFrom<ParameterValue> for String {
                 Ok(s_val.0)
             }
             ParameterValue::Array(_) => Err("expected string, not array"),
+        }
+    }
+}
+
+impl TryFrom<ParameterValue> for u8 {
+    type Error = TryFromIntError;
+
+    fn try_from(pv: ParameterValue) -> Result<Self, Self::Error> {
+        match pv {
+            ParameterValue::Atom(s) => {
+                let s_val: NmlUint = s.parse().unwrap();
+                Ok(s_val.0.try_into()?)
+            }
+            ParameterValue::Array(_) => panic!("expected unsigned integer, not array"),
         }
     }
 }
