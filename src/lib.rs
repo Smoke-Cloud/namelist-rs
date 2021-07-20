@@ -222,7 +222,10 @@ impl TryFrom<ParameterValue> for String {
     }
 }
 
-impl TryFrom<ParameterValue> for Vec<String> {
+impl<T: TryFrom<ParameterValue>> TryFrom<ParameterValue> for Vec<T>
+where
+    <T as TryFrom<ParameterValue>>::Error: std::fmt::Debug,
+{
     type Error = &'static str;
 
     fn try_from(pv: ParameterValue) -> Result<Self, Self::Error> {
