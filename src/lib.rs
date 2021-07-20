@@ -1,8 +1,8 @@
-use std::num::TryFromIntError;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::io::Read;
 use std::io::{BufRead, BufReader};
+use std::num::TryFromIntError;
 use std::str::FromStr;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -222,6 +222,27 @@ impl TryFrom<ParameterValue> for String {
     }
 }
 
+impl TryFrom<ParameterValue> for Vec<String> {
+    type Error = &'static str;
+
+    fn try_from(pv: ParameterValue) -> Result<Self, Self::Error> {
+        match pv {
+            ParameterValue::Atom(_) => Err("expected array"),
+            ParameterValue::Array(vmap) => {
+                let mut array = Vec::new();
+                for (indices, value) in vmap.iter() {
+                    if indices.len() != 1 {
+                        return Err("incorrect number of indices");
+                    }
+                    let value = ParameterValue::Atom(value.clone()).try_into().unwrap();
+                    array.push(value);
+                }
+                Ok(array)
+            }
+        }
+    }
+}
+
 impl TryFrom<ParameterValue> for u8 {
     type Error = TryFromIntError;
 
@@ -360,12 +381,12 @@ impl FromStr for NmlString {
     }
 }
 
-fn parse_nml_name_str(input: &str) -> (&str,&str) {
-    if let Some(n) = input.chars().position(|c|!c.is_alphanumeric()) {
-        let (a,b) = input.split_at(n);
-        (a,b)
+fn parse_nml_name_str(input: &str) -> (&str, &str) {
+    if let Some(n) = input.chars().position(|c| !c.is_alphanumeric()) {
+        let (a, b) = input.split_at(n);
+        (a, b)
     } else {
-        (input,"")
+        (input, "")
     }
 }
 
@@ -840,8 +861,7 @@ mod tests {
             Token::Str("\'Test HOLE feature for MEAN_FORCING\'".to_string()),
         ];
         let eq_split = EqualsSplitter::new(tokens.into_iter());
-        for _ in eq_split {
-        }
+        for _ in eq_split {}
     }
 
     #[test]
