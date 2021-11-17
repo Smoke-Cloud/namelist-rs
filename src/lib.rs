@@ -31,7 +31,7 @@ impl TryFrom<(String, Vec<Token>)> for Namelist {
             } else {
                 panic!("{:?} not a valid param name", param_name)
             };
-            let pos: Option<ParamPos> = if pos_tokens.len() > 0 {
+            let pos: Option<ParamPos> = if !pos_tokens.is_empty() {
                 Some(pos_tokens.try_into().expect("could not parse parampos"))
             } else {
                 None
@@ -93,7 +93,7 @@ impl<'a> Iterator for EqualsSplitter {
         // use the first token in the iterator.
         let param_name = match &self.prev {
             Some(s) => Some(s.clone()),
-            None => self.tokens.next().clone(),
+            None => self.tokens.next(),
         };
         self.prev = None;
         if param_name.is_none() || param_name == Some(Token::RightSlash) {
@@ -140,11 +140,9 @@ impl<'a> Iterator for EqualsSplitter {
                     }
                     let token = token.expect("err: 18");
                     if let Some(prev) = self.prev.clone() {
-                        self.prev = Some(token.clone());
                         param_tokens.push(prev);
-                    } else {
-                        self.prev = Some(token.clone());
                     }
+                    self.prev = Some(token.clone());
                 }
             }
             e => panic!("expected '=' found {:?} in {:?}", e, self.tokens),
@@ -175,16 +173,15 @@ impl ParameterValue {
             1 => Ok(into_parameter_value_atom(tokens[0].clone())),
             // We have many values
             _many => {
-                let vals: Vec<String> = tokens
+                let vals = tokens
                     .into_iter()
                     .filter(|x| x != &Token::Comma)
                     .map(|x| match x {
                         Token::Str(s) => s,
                         v => panic!("invalid array value: {:?}", v),
-                    })
-                    .collect();
+                    });
                 let mut value_map: HashMap<Vec<i64>, String> = HashMap::new();
-                let indices = pos.map(|p| p.iter()).unwrap_or(ParamPos::default_iter());
+                let indices = pos.map(|p| p.iter()).unwrap_or_else(ParamPos::default_iter);
                 for (is, value) in indices.zip(vals.into_iter()) {
                     value_map.insert(is.into_iter().map(|x| x as i64).collect(), value);
                 }
@@ -323,16 +320,16 @@ impl FromStr for NmlBool {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim_matches('.');
-        if s.starts_with("t") {
+        if s.starts_with('t') {
             return Ok(NmlBool(true));
         }
-        if s.starts_with("T") {
+        if s.starts_with('T') {
             return Ok(NmlBool(true));
         }
-        if s.starts_with("f") {
+        if s.starts_with('f') {
             return Ok(NmlBool(false));
         }
-        if s.starts_with("F") {
+        if s.starts_with('F') {
             return Ok(NmlBool(false));
         }
         Err(())
@@ -410,6 +407,10 @@ impl ParamPos {
                 "In a two-dimensional position parameter, one dimensions must be a single number"
             ),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn iter(&self) -> PosIter {
@@ -533,6 +534,10 @@ impl Range {
             Range::TwoNumber(m, n) => (n - m + 1) as usize,
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl TryFrom<&[Token]> for Range {
@@ -574,7 +579,7 @@ impl<R: Read> Iterator for NmlParser<R> {
     type Item = Namelist;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.last == true {
+        if self.last {
             return None;
         }
         // Iterate through all the lines, parsing as we go. Each loop iteration is
@@ -582,7 +587,7 @@ impl<R: Read> Iterator for NmlParser<R> {
         loop {
             // If we already have a line in the buffer, use that, else get a new
             // one.
-            if self.buf.len() == 0 {
+            if self.buf.is_empty() {
                 // Get a new line.
                 let n = self
                     .reader
@@ -600,7 +605,7 @@ impl<R: Read> Iterator for NmlParser<R> {
             // If the line (after whitespace) begins with an ampersand, it is a new
             // namelist.
 
-            if line.starts_with("&") {
+            if line.starts_with('&') {
                 // If we currently have an nml we are working on, return that.
                 // We need to make sure that on the next iteration we are in the
                 // right position to get the next nml. This includes setting the
@@ -691,14 +696,11 @@ fn tokenize_nml(input: &str) -> Vec<Token> {
             start = i + 1;
             continue;
         } else if in_quotes {
-            match c {
-                '\'' => {
-                    // We're ending a quoted string
-                    tokens.push(Token::Str(String::from(&input[start..i + 1])));
-                    start = i + 1;
-                    in_quotes = false;
-                }
-                _ => (),
+            if c == '\'' {
+                // We're ending a quoted string
+                tokens.push(Token::Str(String::from(&input[start..i + 1])));
+                start = i + 1;
+                in_quotes = false;
             }
         } else {
             // In this branch we are not within a quoted string.z
