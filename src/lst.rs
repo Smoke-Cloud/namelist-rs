@@ -28,33 +28,22 @@ pub enum NamelistElement {
     Other(Vec<Element>),
 }
 
-// impl<'input> std::fmt::Display for NamelistLst<'input> {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         for element in self.elements.iter() {
-//             let s = &self.content[element.span.start..(element.span.start + element.span.len)];
-//             write!(f, "{}", s)?;
-//         }
-//         Ok(())
-//     }
-// }
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Namelist {
     pub name: String,
     pub tokens: Vec<Element>,
-    // pub parameters: Vec<(String, String)>,
 }
 
 impl Namelist {
     pub fn remove_parameter(&mut self, name: &str) {
         todo!("remove_parameter")
     }
-    pub fn add_parameter(&mut self, name: &str, value:&str) {
+    pub fn add_parameter(&mut self, name: &str, value: &str) {
         todo!("remove_parameter")
     }
-    pub fn replace_parameter(&mut self, name: &str, value:&str) {
+    pub fn replace_parameter(&mut self, name: &str, value: &str) {
         self.remove_parameter(name);
-        self.add_parameter(name,value);
+        self.add_parameter(name, value);
     }
 }
 
@@ -220,7 +209,6 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
             return Some(buf);
         }
         for (i, c) in self.char_iter.by_ref() {
-            // for (i, c) in self.input.char_indices() {
             if let TokenizerState::InQuote = self.state {
                 // In this branch we are within a quoted string.
                 if c == '\'' {
@@ -718,13 +706,8 @@ mod tests {
     #[test]
     fn basic_lst() {
         let test_path = "tests/test_input.txt";
-        // let f = std::fs::File::open(test_path).expect("could not open test file");
         let input = std::fs::read_to_string(test_path).expect("could not open test file");
         let result = NamelistTokenizer::new(&input).tokenize_nml();
-        // for element in result.elements.iter() {
-        //     let ss = &result.content[element.span.start..(element.span.start + element.span.len)];
-        //     println!("{:?}: {}", element, ss);
-        // }
         assert_eq!(input, result.to_string());
     }
 
@@ -735,11 +718,6 @@ mod tests {
         let tokens = NamelistTokenizer::new(&input);
         let parser = tokens.into_parser();
         let nml_file = parser.into_nml_file();
-        // for element in parser {
-        //     // let ss = &result.content[element.span.start..(element.span.start + element.span.len)];
-        //     println!("{:?}: ", element);
-        // }
-        // panic!("end");
         assert_eq!(input, nml_file.to_string());
     }
 
@@ -751,7 +729,7 @@ mod tests {
         let parser = tokens.into_parser();
         let mut nml_file = parser.into_nml_file();
         // Find all meshes.
-        let meshes: Vec<_> = nml_file
+        let n_meshes = nml_file
             .elements
             .iter_mut()
             .filter(|elem| {
@@ -761,14 +739,8 @@ mod tests {
                     false
                 }
             })
-            .collect();
-        assert_eq!(meshes.len(), 2);
-
-        // for element in parser {
-        //     // let ss = &result.content[element.span.start..(element.span.start + element.span.len)];
-        //     println!("{:?}: ", element);
-        // }
-        // panic!("end");
+            .count();
+        assert_eq!(n_meshes, 2);
         assert_eq!(input, nml_file.to_string());
     }
 }
