@@ -2,7 +2,7 @@ use std::{collections::VecDeque, str::CharIndices, vec};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NamelistFile<'input> {
-    pub elements: Vec<NamelistElement>,
+    pub elements: Vec<NamelistElement<'input>>,
     pub content: &'input str,
 }
 
@@ -23,24 +23,35 @@ impl<'input> std::fmt::Display for NamelistFile<'input> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum NamelistElement {
-    Namelist(Namelist),
+pub enum NamelistElement<'input> {
+    Namelist(Namelist<'input>),
     Other(Vec<Element>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Namelist {
+pub struct Namelist<'input> {
+    pub content: &'input str,
     pub name: String,
+    // Start and end of various params.
+    pub params: Vec<(usize, usize)>,
     pub tokens: Vec<Element>,
 }
 
-impl Namelist {
+impl<'input> Namelist<'input> {
     pub fn remove_parameter(&mut self, name: &str) {
+        // We want to remove everything from the parameter name to the end of
+        // the parameter value and any surrounding whitespace, then replace it
+        // with a single space.
+        // let mut elem_iter = self.tokens.iter();
+        // let i = elem_iter.position(|elem| {
+        //     elem.token == Token::Identifier && elem.as_str(self.content) == name
+        // });
         todo!("remove_parameter")
     }
     pub fn add_parameter(&mut self, name: &str, value: &str) {
-        todo!("remove_parameter")
+        todo!("add_parameter")
     }
+    // TODO: this should modify it in place, not remove and add.
     pub fn replace_parameter(&mut self, name: &str, value: &str) {
         self.remove_parameter(name);
         self.add_parameter(name, value);
@@ -136,23 +147,58 @@ impl<'input> NamelistParser<'input> {
 }
 
 impl<'input> Iterator for NamelistParser<'input> {
-    type Item = NamelistElement;
+    type Item = NamelistElement<'input>;
     fn next(&mut self) -> Option<Self::Item> {
         let element = self.buffer.take().or_else(|| self.token_iter.next());
         if let Some(element) = element {
             if element.token == Token::Ampersand {
                 if let Some(next_element) = self.token_iter.next() {
-                    let mut namelist = Namelist {
-                        name: next_element.as_str(self.input).to_string(),
-                        tokens: vec![element, next_element],
-                    };
+                    let name = next_element.as_str(self.input).to_string();
+                    let mut tokens = vec![element, next_element];
                     for element in self.token_iter.by_ref() {
                         let end = element.token == Token::RightSlash;
-                        namelist.tokens.push(element);
+                        tokens.push(element);
                         if end {
-                            return Some(NamelistElement::Namelist(namelist));
+                            break;
                         }
                     }
+                    let mut params = Vec::new();
+                    let mut start = None;
+                    for (i, elem) in tokens.iter().enumerate() {
+                        if let Some(start_i) = start {
+                            if elem.token == Token::Equals {
+                                let mut j = i - 1;
+                                loop {
+                                    if tokens[j].token == Token::Identifier {
+                                        start = Some(j);
+                                        params.push((start_i, j - 1));
+                                        break;
+                                    } else {
+                                        j -= 1;
+                                    }
+                                }
+                            } else if elem.token == Token::RightSlash {
+                                params.push((start_i, i - 1));
+                                start = None;
+                            }
+                        } else if elem.token == Token::Equals {
+                            let mut j = i - 1;
+                            loop {
+                                if tokens[j].token == Token::Identifier {
+                                    start = Some(j);
+                                    break;
+                                } else {
+                                    j -= 1;
+                                }
+                            }
+                        }
+                    }
+                    let namelist = Namelist {
+                        content: self.input,
+                        name,
+                        tokens,
+                        params,
+                    };
                     Some(NamelistElement::Namelist(namelist))
                 } else {
                     panic!("no namelist name");
@@ -694,6 +740,8 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use super::*;
 
     #[test]
@@ -728,6 +776,24 @@ mod tests {
         let tokens = NamelistTokenizer::new(&input);
         let parser = tokens.into_parser();
         let mut nml_file = parser.into_nml_file();
+        let mut f = std::fs::File::create("test-out.fds").unwrap();
+        for elem in nml_file.elements.iter() {
+            if let NamelistElement::Namelist(nml) = elem {
+                writeln!(f, "{}:", nml.name).unwrap();
+                for (i, elem) in nml.tokens.iter().enumerate() {
+                    writeln!(f, "  [{}]: {:?}", i, elem).unwrap();
+                }
+                writeln!(f, "  {:?}", nml.params).unwrap();
+                for (start, end) in nml.params.iter() {
+                    write!(f, "  ").unwrap();
+                    let elems = &nml.tokens[*start..=*end];
+                    for elem in elems {
+                        write!(f, "{}", elem.as_str(nml.content).trim()).unwrap();
+                    }
+                    writeln!(f).unwrap();
+                }
+            }
+        }
         // Find all meshes.
         let n_meshes = nml_file
             .elements
