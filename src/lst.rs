@@ -45,6 +45,19 @@ pub struct Namelist {
     // pub parameters: Vec<(String, String)>,
 }
 
+impl Namelist {
+    pub fn remove_parameter(&mut self, name: &str) {
+        todo!("remove_parameter")
+    }
+    pub fn add_parameter(&mut self, name: &str, value:&str) {
+        todo!("remove_parameter")
+    }
+    pub fn replace_parameter(&mut self, name: &str, value:&str) {
+        self.remove_parameter(name);
+        self.add_parameter(name,value);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct NamelistLst<'input> {
     pub elements: Vec<Element>,
@@ -722,6 +735,35 @@ mod tests {
         let tokens = NamelistTokenizer::new(&input);
         let parser = tokens.into_parser();
         let nml_file = parser.into_nml_file();
+        // for element in parser {
+        //     // let ss = &result.content[element.span.start..(element.span.start + element.span.len)];
+        //     println!("{:?}: ", element);
+        // }
+        // panic!("end");
+        assert_eq!(input, nml_file.to_string());
+    }
+
+    #[test]
+    fn basic_parse_meshes() {
+        let test_path = "tests/test_input.txt";
+        let input = std::fs::read_to_string(test_path).expect("could not open test file");
+        let tokens = NamelistTokenizer::new(&input);
+        let parser = tokens.into_parser();
+        let mut nml_file = parser.into_nml_file();
+        // Find all meshes.
+        let meshes: Vec<_> = nml_file
+            .elements
+            .iter_mut()
+            .filter(|elem| {
+                if let NamelistElement::Namelist(nml) = elem {
+                    nml.name == "MESH"
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert_eq!(meshes.len(), 2);
+
         // for element in parser {
         //     // let ss = &result.content[element.span.start..(element.span.start + element.span.len)];
         //     println!("{:?}: ", element);

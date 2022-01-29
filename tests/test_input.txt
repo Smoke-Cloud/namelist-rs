@@ -3,7 +3,8 @@ The case is meant as a teaching tool and to test functionality.
 
 &HEAD CHID='room_fire', TITLE='Single Couch Test Case'  /
 
-&MESH IJK=24,10,24, XB=1.1,3.5,3.6,4.6,0.0,2.4 /
+&MESH IJK=24,10,20, XB=1.1,3.5,3.6,4.6,0.0,1.0 /
+&MESH IJK=24,10,14, XB=1.1,3.5,3.6,4.6,1.0,2.4 /
 
 &TIME T_END=50.0 /
 
