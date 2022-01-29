@@ -19,10 +19,10 @@ mod integration {
         let input = file.to_string();
         let t1 = std::time::Instant::now();
         let result = namelist::lst::tokenize_nml(input);
-        for element in result.elements[(result.elements.len() - 2)..].iter() {
-            let ss = &result.content[element.span.start..(element.span.start + element.span.len)];
-            println!("{:?}: {:?}", element, ss);
-        }
+        // for element in result.elements.iter() {
+        //     let ss = &result.content[element.span.start..(element.span.start + element.span.len)];
+        //     println!("{:?}: {:?}", element, ss);
+        // }
         let t2 = std::time::Instant::now();
         println!("Time Taken: {} s", (t2 - t1).as_secs_f64());
         assert_eq!(file, result.to_string());

@@ -33,6 +33,7 @@ pub enum Token {
     Whitespace,
     Comment,
     Identifier,
+    GroupName,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -44,6 +45,7 @@ pub struct Span {
 enum ParserState {
     InQuote,
     InIdentifier,
+    InGroupName,
     InWhitespace,
     InComment,
     Start,
@@ -102,6 +104,18 @@ pub fn tokenize_nml(input: String) -> NamelistLst {
                     parser_state = ParserState::InWhitespace;
                     start = i;
                 }
+                ParserState::InGroupName => {
+                    // We just hit whitespace so finish an identifier.
+                    elements.push(Element {
+                        token: Token::GroupName,
+                        span: Span {
+                            start,
+                            len: i - start,
+                        },
+                    });
+                    parser_state = ParserState::InWhitespace;
+                    start = i;
+                }
             }
         } else {
             // In this branch we are not within a quoted string.
@@ -133,6 +147,16 @@ pub fn tokenize_nml(input: String) -> NamelistLst {
                             // We just hit whitespace so finish an identifier.
                             elements.push(Element {
                                 token: Token::Identifier,
+                                span: Span {
+                                    start,
+                                    len: i - start,
+                                },
+                            });
+                        }
+                        ParserState::InGroupName => {
+                            // We just hit whitespace so finish an identifier.
+                            elements.push(Element {
+                                token: Token::GroupName,
                                 span: Span {
                                     start,
                                     len: i - start,
@@ -175,6 +199,16 @@ pub fn tokenize_nml(input: String) -> NamelistLst {
                                 },
                             });
                         }
+                        ParserState::InGroupName => {
+                            // We just hit whitespace so finish an identifier.
+                            elements.push(Element {
+                                token: Token::GroupName,
+                                span: Span {
+                                    start,
+                                    len: i - start,
+                                },
+                            });
+                        }
                     }
                     // Then we start a comment
                     parser_state = ParserState::InComment;
@@ -205,6 +239,16 @@ pub fn tokenize_nml(input: String) -> NamelistLst {
                             // We just hit whitespace so finish an identifier.
                             elements.push(Element {
                                 token: Token::Identifier,
+                                span: Span {
+                                    start,
+                                    len: i - start,
+                                },
+                            });
+                        }
+                        ParserState::InGroupName => {
+                            // We just hit whitespace so finish an identifier.
+                            elements.push(Element {
+                                token: Token::GroupName,
                                 span: Span {
                                     start,
                                     len: i - start,
@@ -250,6 +294,16 @@ pub fn tokenize_nml(input: String) -> NamelistLst {
                                 },
                             });
                         }
+                        ParserState::InGroupName => {
+                            // We just hit whitespace so finish an identifier.
+                            elements.push(Element {
+                                token: Token::GroupName,
+                                span: Span {
+                                    start,
+                                    len: i - start,
+                                },
+                            });
+                        }
                     }
                     elements.push(Element {
                         token: Token::Comma,
@@ -283,6 +337,16 @@ pub fn tokenize_nml(input: String) -> NamelistLst {
                             // We just hit whitespace so finish an identifier.
                             elements.push(Element {
                                 token: Token::Identifier,
+                                span: Span {
+                                    start,
+                                    len: i - start,
+                                },
+                            });
+                        }
+                        ParserState::InGroupName => {
+                            // We just hit whitespace so finish an identifier.
+                            elements.push(Element {
+                                token: Token::GroupName,
                                 span: Span {
                                     start,
                                     len: i - start,
@@ -328,6 +392,16 @@ pub fn tokenize_nml(input: String) -> NamelistLst {
                                 },
                             });
                         }
+                        ParserState::InGroupName => {
+                            // We just hit whitespace so finish an identifier.
+                            elements.push(Element {
+                                token: Token::GroupName,
+                                span: Span {
+                                    start,
+                                    len: i - start,
+                                },
+                            });
+                        }
                     }
                     elements.push(Element {
                         token: Token::RightParen,
@@ -361,6 +435,16 @@ pub fn tokenize_nml(input: String) -> NamelistLst {
                             // We just hit whitespace so finish an identifier.
                             elements.push(Element {
                                 token: Token::Identifier,
+                                span: Span {
+                                    start,
+                                    len: i - start,
+                                },
+                            });
+                        }
+                        ParserState::InGroupName => {
+                            // We just hit whitespace so finish an identifier.
+                            elements.push(Element {
+                                token: Token::GroupName,
                                 span: Span {
                                     start,
                                     len: i - start,
@@ -406,6 +490,16 @@ pub fn tokenize_nml(input: String) -> NamelistLst {
                                 },
                             });
                         }
+                        ParserState::InGroupName => {
+                            // We just hit whitespace so finish an identifier.
+                            elements.push(Element {
+                                token: Token::GroupName,
+                                span: Span {
+                                    start,
+                                    len: i - start,
+                                },
+                            });
+                        }
                     }
                     elements.push(Element {
                         token: Token::RightSlash,
@@ -445,6 +539,16 @@ pub fn tokenize_nml(input: String) -> NamelistLst {
                                 },
                             });
                         }
+                        ParserState::InGroupName => {
+                            // We just hit whitespace so finish an identifier.
+                            elements.push(Element {
+                                token: Token::GroupName,
+                                span: Span {
+                                    start,
+                                    len: i - start,
+                                },
+                            });
+                        }
                     }
                     elements.push(Element {
                         token: Token::Ampersand,
@@ -476,6 +580,7 @@ pub fn tokenize_nml(input: String) -> NamelistLst {
                         continue;
                     }
                     ParserState::InIdentifier => (),
+                    ParserState::InGroupName => (),
                 },
             }
         }
@@ -510,6 +615,13 @@ pub fn tokenize_nml(input: String) -> NamelistLst {
                 len: input.len() - start,
             },
         }),
+        ParserState::InGroupName => elements.push(Element {
+            token: Token::GroupName,
+            span: Span {
+                start,
+                len: input.len() - start,
+            },
+        }),
     }
     NamelistLst {
         elements,
@@ -530,5 +642,18 @@ mod tests {
             println!("{:?}: {}", element, ss);
         }
         assert_eq!(input, &result.to_string());
+    }
+
+    #[test]
+    fn basic_lst() {
+        let test_path = "tests/test_input.txt";
+        // let f = std::fs::File::open(test_path).expect("could not open test file");
+        let input = std::fs::read_to_string(test_path).expect("could not open test file");
+        let result = tokenize_nml(input.clone());
+        // for element in result.elements.iter() {
+        //     let ss = &result.content[element.span.start..(element.span.start + element.span.len)];
+        //     println!("{:?}: {}", element, ss);
+        // }
+        assert_eq!(input, result.to_string());
     }
 }
