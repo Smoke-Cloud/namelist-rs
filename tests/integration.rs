@@ -15,16 +15,15 @@ mod integration {
     #[ignore]
     #[test]
     fn parse_file_test_fmt_a() {
-        let file = include_str!("TestD.fds");
-        let input = file.to_string();
+        let input = include_str!("TestD.fds");
         let t1 = std::time::Instant::now();
-        let result = namelist::lst::tokenize_nml(input);
+        let result = namelist::lst::NamelistTokenizer::new(input).tokenize_nml();
         // for element in result.elements.iter() {
         //     let ss = &result.content[element.span.start..(element.span.start + element.span.len)];
         //     println!("{:?}: {:?}", element, ss);
         // }
         let t2 = std::time::Instant::now();
         println!("Time Taken: {} s", (t2 - t1).as_secs_f64());
-        assert_eq!(file, result.to_string());
+        assert_eq!(input, &result.to_string());
     }
 }
