@@ -4,6 +4,7 @@ use std::io::Read;
 use std::io::{BufRead, BufReader};
 use std::num::TryFromIntError;
 use std::str::FromStr;
+pub mod lst;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NamelistFile {

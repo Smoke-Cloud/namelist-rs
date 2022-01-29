@@ -49,7 +49,7 @@ enum ParserState {
     Start,
 }
 
-fn tokenize_nml(input: String) -> NamelistLst {
+pub fn tokenize_nml(input: String) -> NamelistLst {
     let mut elements: Vec<Element> = Vec::new();
     let mut start: usize = 0;
     let mut parser_state = ParserState::Start;
@@ -74,7 +74,21 @@ fn tokenize_nml(input: String) -> NamelistLst {
                     parser_state = ParserState::InWhitespace;
                     start = i;
                 }
-                ParserState::InWhitespace | ParserState::InComment => (),
+                ParserState::InWhitespace => (),
+                ParserState::InComment => {
+                    if c == '\n' {
+                        // End the comment
+                        elements.push(Element {
+                            token: Token::Comment,
+                            span: Span {
+                                start,
+                                len: i - start + 1,
+                            },
+                        });
+                        parser_state = ParserState::Start;
+                        start = i;
+                    }
+                }
                 ParserState::InQuote => (),
                 ParserState::InIdentifier => {
                     // We just hit whitespace so finish an identifier.
@@ -85,6 +99,7 @@ fn tokenize_nml(input: String) -> NamelistLst {
                             len: i - start,
                         },
                     });
+                    parser_state = ParserState::InWhitespace;
                     start = i;
                 }
             }
@@ -127,6 +142,42 @@ fn tokenize_nml(input: String) -> NamelistLst {
                     }
                     // Then we start a quote
                     parser_state = ParserState::InQuote;
+                    start = i;
+                }
+                '!' => {
+                    // We have begun a quote, this continues until the end of the line
+                    match parser_state {
+                        ParserState::Start => (),
+                        ParserState::InWhitespace => {
+                            {
+                                // We just hit whitespace so finish an identifier.
+                                elements.push(Element {
+                                    token: Token::Identifier,
+                                    span: Span {
+                                        start,
+                                        len: i - start,
+                                    },
+                                });
+                            }
+                        }
+                        ParserState::InComment => {
+                            // Don't start a comment if we are already in a comment.
+                            continue;
+                        }
+                        ParserState::InQuote => unreachable!("cannot be quote"),
+                        ParserState::InIdentifier => {
+                            // We just hit whitespace so finish an identifier.
+                            elements.push(Element {
+                                token: Token::Identifier,
+                                span: Span {
+                                    start,
+                                    len: i - start,
+                                },
+                            });
+                        }
+                    }
+                    // Then we start a comment
+                    parser_state = ParserState::InComment;
                     start = i;
                 }
                 '=' => {
@@ -429,6 +480,37 @@ fn tokenize_nml(input: String) -> NamelistLst {
             }
         }
     }
+    match parser_state {
+        ParserState::Start => (),
+        ParserState::InWhitespace => {
+            elements.push(Element {
+                token: Token::Whitespace,
+                span: Span {
+                    start,
+                    len: input.len() - start,
+                },
+            });
+        }
+        ParserState::InComment => {
+            elements.push(Element {
+                token: Token::Comment,
+                span: Span {
+                    start,
+                    len: input.len() - start,
+                },
+            });
+        }
+        ParserState::InQuote => {
+            panic!("incomplete quote");
+        }
+        ParserState::InIdentifier => elements.push(Element {
+            token: Token::Identifier,
+            span: Span {
+                start,
+                len: input.len() - start,
+            },
+        }),
+    }
     NamelistLst {
         elements,
         content: input,
@@ -448,6 +530,5 @@ mod tests {
             println!("{:?}: {}", element, ss);
         }
         assert_eq!(input, &result.to_string());
-        panic!("{}", result);
     }
 }
