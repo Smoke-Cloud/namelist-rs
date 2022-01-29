@@ -14,7 +14,7 @@ impl<'input> std::fmt::Display for NamelistFile<'input> {
                 NamelistElement::Other(elems) => elems,
             };
             for element in elems.iter() {
-                let s = &self.content[element.span.start..(element.span.start + element.span.len)];
+                let s = element.as_str(self.content);
                 write!(f, "{}", s)?;
             }
         }
@@ -54,8 +54,7 @@ pub struct NamelistLst<'input> {
 impl<'input> std::fmt::Display for NamelistLst<'input> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for element in self.elements.iter() {
-            let s = &self.content[element.span.start..(element.span.start + element.span.len)];
-            write!(f, "{}", s)?;
+            write!(f, "{}", element.as_str(self.content))?;
         }
         Ok(())
     }
@@ -65,6 +64,12 @@ impl<'input> std::fmt::Display for NamelistLst<'input> {
 pub struct Element {
     pub token: Token,
     pub span: Span,
+}
+
+impl<'a> Element {
+    pub fn as_str(&'a self, content: &'a str) -> &'a str {
+        self.span.as_str(content)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,9 +89,18 @@ pub enum Token {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Span {
-    pub start: usize,
-    pub len: usize,
+pub enum Span {
+    Backed { start: usize, len: usize },
+    Owned(String),
+}
+
+impl<'a> Span {
+    pub fn as_str(&'a self, content: &'a str) -> &'a str {
+        match self {
+            Span::Backed { start, len } => &content[*start..(*start + *len)],
+            Span::Owned(s) => s.as_str(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -123,14 +137,11 @@ impl<'input> Iterator for NamelistParser<'input> {
     type Item = NamelistElement;
     fn next(&mut self) -> Option<Self::Item> {
         let element = self.buffer.take().or_else(|| self.token_iter.next());
-        // println!("element: {:?}", element);
         if let Some(element) = element {
             if element.token == Token::Ampersand {
                 if let Some(next_element) = self.token_iter.next() {
                     let mut namelist = Namelist {
-                        name: self.input[next_element.span.start
-                            ..(next_element.span.start + next_element.span.len)]
-                            .to_string(),
+                        name: next_element.as_str(self.input).to_string(),
                         tokens: vec![element, next_element],
                     };
                     for element in self.token_iter.by_ref() {
@@ -203,7 +214,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                     // We're ending a quoted string
                     self.buffer.push_back(Element {
                         token: Token::Str,
-                        span: Span {
+                        span: Span::Backed {
                             start: self.start,
                             len: i - self.start + 1,
                         },
@@ -224,7 +235,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                             // End the comment
                             self.buffer.push_back(Element {
                                 token: Token::Comment,
-                                span: Span {
+                                span: Span::Backed {
                                     start: self.start,
                                     len: i - self.start + 1,
                                 },
@@ -239,7 +250,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                         // We just hit whitespace so finish an identifier.
                         self.buffer.push_back(Element {
                             token: Token::Identifier,
-                            span: Span {
+                            span: Span::Backed {
                                 start: self.start,
                                 len: i - self.start,
                             },
@@ -262,7 +273,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                 // We just hit whitespace so finish an identifier.
                                 self.buffer.push_back(Element {
                                     token: Token::Identifier,
-                                    span: Span {
+                                    span: Span::Backed {
                                         start: self.start,
                                         len: i - self.start,
                                     },
@@ -277,7 +288,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                 // We just hit whitespace so finish an identifier.
                                 self.buffer.push_back(Element {
                                     token: Token::Identifier,
-                                    span: Span {
+                                    span: Span::Backed {
                                         start: self.start,
                                         len: i - self.start,
                                     },
@@ -297,7 +308,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                     // We just hit whitespace so finish an identifier.
                                     self.buffer.push_back(Element {
                                         token: Token::Identifier,
-                                        span: Span {
+                                        span: Span::Backed {
                                             start: self.start,
                                             len: i - self.start,
                                         },
@@ -313,7 +324,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                 // We just hit whitespace so finish an identifier.
                                 self.buffer.push_back(Element {
                                     token: Token::Identifier,
-                                    span: Span {
+                                    span: Span::Backed {
                                         start: self.start,
                                         len: i - self.start,
                                     },
@@ -332,7 +343,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                     // We just hit whitespace so finish an identifier.
                                     self.buffer.push_back(Element {
                                         token: Token::Whitespace,
-                                        span: Span {
+                                        span: Span::Backed {
                                             start: self.start,
                                             len: i - self.start,
                                         },
@@ -349,7 +360,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                 // We just hit whitespace so finish an identifier.
                                 self.buffer.push_back(Element {
                                     token: Token::Identifier,
-                                    span: Span {
+                                    span: Span::Backed {
                                         start: self.start,
                                         len: i - self.start,
                                     },
@@ -358,7 +369,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                         }
                         self.buffer.push_back(Element {
                             token: Token::Equals,
-                            span: Span { start: i, len: 1 },
+                            span: Span::Backed { start: i, len: 1 },
                         });
                         self.state = TokenizerState::Start;
                         self.start = i;
@@ -372,7 +383,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                     // We just hit whitespace so finish an identifier.
                                     self.buffer.push_back(Element {
                                         token: Token::Whitespace,
-                                        span: Span {
+                                        span: Span::Backed {
                                             start: self.start,
                                             len: i - self.start,
                                         },
@@ -389,7 +400,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                 // We just hit whitespace so finish an identifier.
                                 self.buffer.push_back(Element {
                                     token: Token::Identifier,
-                                    span: Span {
+                                    span: Span::Backed {
                                         start: self.start,
                                         len: i - self.start,
                                     },
@@ -398,7 +409,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                         }
                         self.buffer.push_back(Element {
                             token: Token::Comma,
-                            span: Span { start: i, len: 1 },
+                            span: Span::Backed { start: i, len: 1 },
                         });
                         self.state = TokenizerState::Start;
                         self.start = i;
@@ -412,7 +423,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                     // We just hit whitespace so finish an identifier.
                                     self.buffer.push_back(Element {
                                         token: Token::Whitespace,
-                                        span: Span {
+                                        span: Span::Backed {
                                             start: self.start,
                                             len: i - self.start,
                                         },
@@ -429,7 +440,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                 // We just hit whitespace so finish an identifier.
                                 self.buffer.push_back(Element {
                                     token: Token::Identifier,
-                                    span: Span {
+                                    span: Span::Backed {
                                         start: self.start,
                                         len: i - self.start,
                                     },
@@ -438,7 +449,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                         }
                         self.buffer.push_back(Element {
                             token: Token::LeftParen,
-                            span: Span { start: i, len: 1 },
+                            span: Span::Backed { start: i, len: 1 },
                         });
                         self.state = TokenizerState::Start;
                         self.start = i;
@@ -452,7 +463,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                     // We just hit whitespace so finish an identifier.
                                     self.buffer.push_back(Element {
                                         token: Token::Whitespace,
-                                        span: Span {
+                                        span: Span::Backed {
                                             start: self.start,
                                             len: i - self.start,
                                         },
@@ -469,7 +480,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                 // We just hit whitespace so finish an identifier.
                                 self.buffer.push_back(Element {
                                     token: Token::Identifier,
-                                    span: Span {
+                                    span: Span::Backed {
                                         start: self.start,
                                         len: i - self.start,
                                     },
@@ -478,7 +489,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                         }
                         self.buffer.push_back(Element {
                             token: Token::RightParen,
-                            span: Span { start: i, len: 1 },
+                            span: Span::Backed { start: i, len: 1 },
                         });
                         self.state = TokenizerState::Start;
                         self.start = i;
@@ -492,7 +503,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                     // We just hit whitespace so finish an identifier.
                                     self.buffer.push_back(Element {
                                         token: Token::Whitespace,
-                                        span: Span {
+                                        span: Span::Backed {
                                             start: self.start,
                                             len: i - self.start,
                                         },
@@ -509,7 +520,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                 // We just hit whitespace so finish an identifier.
                                 self.buffer.push_back(Element {
                                     token: Token::Identifier,
-                                    span: Span {
+                                    span: Span::Backed {
                                         start: self.start,
                                         len: i - self.start,
                                     },
@@ -518,7 +529,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                         }
                         self.buffer.push_back(Element {
                             token: Token::Colon,
-                            span: Span { start: i, len: 1 },
+                            span: Span::Backed { start: i, len: 1 },
                         });
                         self.state = TokenizerState::Start;
                         self.start = i + 1;
@@ -532,7 +543,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                     // We just hit whitespace so finish an identifier.
                                     self.buffer.push_back(Element {
                                         token: Token::Whitespace,
-                                        span: Span {
+                                        span: Span::Backed {
                                             start: self.start,
                                             len: i - self.start,
                                         },
@@ -549,7 +560,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                 // We just hit whitespace so finish an identifier.
                                 self.buffer.push_back(Element {
                                     token: Token::Identifier,
-                                    span: Span {
+                                    span: Span::Backed {
                                         start: self.start,
                                         len: i - self.start,
                                     },
@@ -558,7 +569,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                         }
                         self.buffer.push_back(Element {
                             token: Token::RightSlash,
-                            span: Span { start: i, len: 1 },
+                            span: Span::Backed { start: i, len: 1 },
                         });
                         self.state = TokenizerState::Start;
                         self.start = i + 1;
@@ -572,7 +583,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                     // We just hit whitespace so finish an identifier.
                                     self.buffer.push_back(Element {
                                         token: Token::Whitespace,
-                                        span: Span {
+                                        span: Span::Backed {
                                             start: self.start,
                                             len: i - self.start,
                                         },
@@ -589,7 +600,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                                 // We just hit whitespace so finish an identifier.
                                 self.buffer.push_back(Element {
                                     token: Token::Identifier,
-                                    span: Span {
+                                    span: Span::Backed {
                                         start: self.start,
                                         len: i - self.start,
                                     },
@@ -598,7 +609,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                         }
                         self.buffer.push_back(Element {
                             token: Token::Ampersand,
-                            span: Span { start: i, len: 1 },
+                            span: Span::Backed { start: i, len: 1 },
                         });
                         self.state = TokenizerState::Start;
                         self.start = i + 1;
@@ -612,7 +623,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                         TokenizerState::InWhitespace => {
                             self.buffer.push_back(Element {
                                 token: Token::Whitespace,
-                                span: Span {
+                                span: Span::Backed {
                                     start: self.start,
                                     len: i - self.start,
                                 },
@@ -640,7 +651,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                 if len > 0 {
                     self.buffer.push_back(Element {
                         token: Token::Whitespace,
-                        span: Span {
+                        span: Span::Backed {
                             start: self.start,
                             len,
                         },
@@ -652,7 +663,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                 if len > 0 {
                     self.buffer.push_back(Element {
                         token: Token::Comment,
-                        span: Span {
+                        span: Span::Backed {
                             start: self.start,
                             len,
                         },
@@ -667,7 +678,7 @@ impl<'input> Iterator for NamelistTokenizer<'input> {
                 if len > 0 {
                     self.buffer.push_back(Element {
                         token: Token::Identifier,
-                        span: Span {
+                        span: Span::Backed {
                             start: self.start,
                             len,
                         },
