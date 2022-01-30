@@ -75,7 +75,37 @@ impl<'input> Namelist<'input> {
         }
     }
     pub fn add_parameter(&mut self, name: &str, value: &str) {
-        todo!("add_parameter")
+        let w1_element = Element {
+            token: Token::Whitespace,
+            span: Span::Owned(" ".to_string()),
+        };
+        let name_element = Element {
+            token: Token::Identifier,
+            span: Span::Owned(name.to_string()),
+        };
+        let equals_element = Element {
+            token: Token::Equals,
+            span: Span::Owned("=".to_string()),
+        };
+        let value_element = Element {
+            token: Token::Identifier,
+            span: Span::Owned(value.to_string()),
+        };
+        let w2_element = Element {
+            token: Token::Whitespace,
+            span: Span::Owned(" ".to_string()),
+        };
+        let w1_index = self.tokens.len() - 1;
+        self.tokens.insert(w1_index, w1_element);
+        let name_index = self.tokens.len() - 1;
+        self.tokens.insert(name_index, name_element);
+        let equals_index = self.tokens.len() - 1;
+        self.tokens.insert(equals_index, equals_element);
+        let value_index = self.tokens.len() - 1;
+        self.tokens.insert(value_index, value_element);
+        let w2_index = self.tokens.len() - 1;
+        self.tokens.insert(w2_index, w2_element);
+        self.params.push((w1_index, w2_index));
     }
     // TODO: this should modify it in place, not remove and add.
     pub fn replace_parameter(&mut self, name: &str, value: &str) {
@@ -807,6 +837,7 @@ mod tests {
         if let Some(NamelistElement::Namelist(nml)) = nml_file.elements.get_mut(1) {
             println!("removing..");
             nml.remove_parameter("TITLE");
+            nml.add_parameter("SOME_PARAMETER", "5.2");
         }
         for elem in nml_file.elements.iter() {
             if let NamelistElement::Namelist(nml) = elem {
