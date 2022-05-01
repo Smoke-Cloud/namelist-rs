@@ -94,7 +94,7 @@ impl<B: std::io::BufRead> TokenIter<B> {
 }
 
 impl<B: std::io::BufRead> Iterator for TokenIter<B> {
-    type Item = LocatedToken;
+    type Item = Result<LocatedToken, ()>;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let Some((i, c)) = self
@@ -122,35 +122,35 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
                                     let span = Span { lo: i, len: 1 };
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::Start;
-                                    break Some(token);
+                                    break Some(Ok(token));
                                 }
                                 '(' => {
                                     let token = Token::LeftBracket;
                                     let span = Span { lo: i, len: 1 };
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::Start;
-                                    break Some(token);
+                                    break Some(Ok(token));
                                 }
                                 ')' => {
                                     let token = Token::RightBracket;
                                     let span = Span { lo: i, len: 1 };
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::Start;
-                                    break Some(token);
+                                    break Some(Ok(token));
                                 }
                                 ':' => {
                                     let token = Token::Colon;
                                     let span = Span { lo: i, len: 1 };
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::Start;
-                                    break Some(token);
+                                    break Some(Ok(token));
                                 }
                                 ',' => {
                                     let token = Token::Comma;
                                     let span = Span { lo: i, len: 1 };
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::Start;
-                                    break Some(token);
+                                    break Some(Ok(token));
                                 }
                                 _ => {
                                     if c.is_alphabetic() {
@@ -186,7 +186,7 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
                                 token: Token::QuotedStr(value),
                             };
                             self.state = TokenizerState::Start;
-                            break Some(token);
+                            break Some(Ok(token));
                         }
                         _ => {
                             content.push(c);
@@ -241,7 +241,7 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
                                     }
                                 }
                             }
-                            break Some(token);
+                            break Some(Ok(token));
                         }
                     }
                     TokenizerState::InIdentifier { start, content } => {
@@ -254,7 +254,8 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
                             let token = Token::Identifier(value);
                             self.buf.replace((i, c));
                             self.state = TokenizerState::Start;
-                            break Some(LocatedToken { span, token });
+                            let token = LocatedToken { span, token };
+                            break Some(Ok(token));
                         }
                     }
                     TokenizerState::InNumber { start, content } => {
@@ -296,7 +297,7 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
                                     }
                                 }
                             }
-                            break Some(token);
+                            break Some(Ok(token));
                         }
                     }
                 }
@@ -314,7 +315,8 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
                         let token = Token::Whitespace(value);
                         let span = Span { lo: *start, len };
                         self.state = TokenizerState::Start;
-                        break Some(LocatedToken { span, token });
+                        let token = LocatedToken { span, token };
+                        break Some(Ok(token));
                     }
                     TokenizerState::InIdentifier { start, content } => {
                         let len = content.len();
@@ -322,7 +324,8 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
                         let token = Token::Identifier(value);
                         let span = Span { lo: *start, len };
                         self.state = TokenizerState::Start;
-                        break Some(LocatedToken { span, token });
+                        let token = LocatedToken { span, token };
+                        break Some(Ok(token));
                     }
                     TokenizerState::InNumber { start, content } => {
                         let len = content.len();
@@ -330,7 +333,8 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
                         let token = Token::Number(value);
                         let span = Span { lo: *start, len };
                         self.state = TokenizerState::Start;
-                        break Some(LocatedToken { span, token });
+                        let token = LocatedToken { span, token };
+                        break Some(Ok(token));
                     }
                 }
             }
@@ -340,7 +344,7 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
 
 fn tokenize_nml(input: &str) -> Vec<LocatedToken> {
     let input = Cursor::new(input);
-    let iter = TokenIter::new(input);
+    let iter = TokenIter::new(input).map(|x| x.unwrap());
     iter.collect()
 }
 
