@@ -40,6 +40,7 @@ pub enum Token {
     Whitespace(String),
     Identifier(String),
     Number(String),
+    Comment(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -49,6 +50,7 @@ pub enum TokenizerState {
     InIdentifier { start: usize, content: String },
     InNumber { start: usize, content: String },
     InWhitespace { start: usize, content: String },
+    InComment { start: usize, content: String },
 }
 
 pub struct CharDecoder<R: std::io::Read> {
@@ -128,6 +130,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                     let mut content = String::new();
                                     content.push(c);
                                     self.state = TokenizerState::InQuote { start, content };
+                                }
+                                '!' => {
+                                    let start = i;
+                                    let mut content = String::new();
+                                    content.push(c);
+                                    self.state = TokenizerState::InComment { start, content };
                                 }
                                 '=' => {
                                     let token = Token::Equals;
@@ -210,6 +218,22 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                             let token = LocatedToken {
                                 span: Span { lo: *start, len },
                                 token: Token::QuotedStr(value),
+                            };
+                            self.state = TokenizerState::Start;
+                            break Some(Ok(token));
+                        }
+                        _ => {
+                            content.push(c);
+                        }
+                    },
+                    TokenizerState::InComment { start, content } => match c {
+                        '\n' => {
+                            content.push(c);
+                            let len = content.len();
+                            let value = std::mem::take(content);
+                            let token = LocatedToken {
+                                span: Span { lo: *start, len },
+                                token: Token::Comment(value),
                             };
                             self.state = TokenizerState::Start;
                             break Some(Ok(token));
@@ -301,7 +325,7 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                     content.push(c);
                                     self.state = TokenizerState::InQuote { start, content };
                                 }
-                                '=' | '(' | ')' | ':' | ',' | '/' | '&' => {
+                                '=' | '(' | ')' | ':' | ',' | '/' | '&' | '!' => {
                                     self.buf.replace((i, c));
                                     self.state = TokenizerState::Start;
                                 }
@@ -339,6 +363,15 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                         let len = content.len();
                         let value = std::mem::take(content);
                         let token = Token::Whitespace(value);
+                        let span = Span { lo: *start, len };
+                        self.state = TokenizerState::Start;
+                        let token = LocatedToken { span, token };
+                        break Some(Ok(token));
+                    }
+                    TokenizerState::InComment { start, content } => {
+                        let len = content.len();
+                        let value = std::mem::take(content);
+                        let token = Token::Comment(value);
                         let span = Span { lo: *start, len };
                         self.state = TokenizerState::Start;
                         let token = LocatedToken { span, token };
@@ -642,5 +675,28 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn commented_tokens1() {
+        let tokens: Vec<_> = tokenize_str("! hi\nTEMPERATURES(1:2)=273.15, \n 274")
+            .into_iter()
+            .map(|l_token| l_token.token().clone())
+            .collect();
+        let expected = vec![
+            Token::Comment("! hi\n".to_string()),
+            Token::Identifier("TEMPERATURES".to_string()),
+            Token::LeftBracket,
+            Token::Number("1".to_string()),
+            Token::Colon,
+            Token::Number("2".to_string()),
+            Token::RightBracket,
+            Token::Equals,
+            Token::Number("273.15".to_string()),
+            Token::Comma,
+            Token::Whitespace(" \n ".to_string()),
+            Token::Number("274".to_string()),
+        ];
+        assert_eq!(tokens, expected);
     }
 }
