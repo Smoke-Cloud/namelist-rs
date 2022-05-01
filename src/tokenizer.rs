@@ -515,4 +515,57 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn simple_tokens3() {
+        assert_eq!(
+            tokenize_nml("TEMPERATURES(1:2)=273.15, \n 274"),
+            vec![
+                LocatedToken {
+                    span: Span { lo: 0, len: 12 },
+                    token: Token::Identifier("TEMPERATURES".to_string())
+                },
+                LocatedToken {
+                    span: Span { lo: 12, len: 1 },
+                    token: Token::LeftBracket
+                },
+                LocatedToken {
+                    span: Span { lo: 13, len: 1 },
+                    token: Token::Number("1".to_string())
+                },
+                LocatedToken {
+                    span: Span { lo: 14, len: 1 },
+                    token: Token::Colon
+                },
+                LocatedToken {
+                    span: Span { lo: 15, len: 1 },
+                    token: Token::Number("2".to_string())
+                },
+                LocatedToken {
+                    span: Span { lo: 16, len: 1 },
+                    token: Token::RightBracket
+                },
+                LocatedToken {
+                    span: Span { lo: 17, len: 1 },
+                    token: Token::Equals
+                },
+                LocatedToken {
+                    span: Span { lo: 18, len: 6 },
+                    token: Token::Number("273.15".to_string())
+                },
+                LocatedToken {
+                    span: Span { lo: 24, len: 1 },
+                    token: Token::Comma
+                },
+                LocatedToken {
+                    span: Span { lo: 25, len: 3 },
+                    token: Token::Whitespace(" \n ".to_string())
+                },
+                LocatedToken {
+                    span: Span { lo: 28, len: 3 },
+                    token: Token::Number("274".to_string())
+                }
+            ]
+        );
+    }
 }
