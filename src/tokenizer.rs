@@ -1,3 +1,5 @@
+use std::{iter::Peekable, str::CharIndices};
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Span {
     lo: usize,
@@ -34,327 +36,272 @@ pub enum TokenizerState {
     InWhitespace { start: usize, content: String },
 }
 
-pub fn tokenize_nml(input: &str) -> Vec<LocatedToken> {
-    let mut state = TokenizerState::Start;
-    let mut tokens: Vec<LocatedToken> = Vec::new();
-    // let mut start: usize = 0;
-    // We have begun a quoted string. Fortran (FDS at least) does not support
-    // escapes, so we can just look for the next single quote.
-    for (i, c) in input.char_indices() {
-        match state {
-            TokenizerState::Start => {
-                if c.is_whitespace() {
-                    let start = i;
-                    let mut content = String::new();
-                    content.push(c);
-                    state = TokenizerState::InWhitespace { start, content };
-                } else {
-                    match c {
-                        '\'' => {
-                            let start = i;
-                            let mut content = String::new();
-                            content.push(c);
-                            state = TokenizerState::InQuote { start, content };
-                        }
-                        '=' => {
-                            let token = Token::Equals;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        '(' => {
-                            let token = Token::LeftBracket;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        ')' => {
-                            let token = Token::RightBracket;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        ':' => {
-                            let token = Token::Colon;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        ',' => {
-                            let token = Token::Comma;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        _ => {
-                            if c.is_alphabetic() {
-                                let start = i;
-                                let mut content = String::new();
-                                content.push(c);
-                                state = TokenizerState::InIdentifier { start, content };
-                            } else if c.is_whitespace() {
-                                let start = i;
-                                let mut content = String::new();
-                                content.push(c);
-                                state = TokenizerState::InWhitespace { start, content };
-                            } else if c.is_digit(10) || c == '-' {
-                                let mut content = String::new();
-                                content.push(c);
-                                state = TokenizerState::InNumber { start: i, content };
-                            } else {
-                                panic!("{} is an invalid character", c)
-                            }
-                        }
-                    }
-                }
-            }
-            TokenizerState::InQuote { start, mut content } => match c {
-                '\'' => {
-                    content.push(c);
-                    let len = content.len();
-                    let token = Token::QuotedStr(content);
-                    let span = Span { lo: start, len };
-                    tokens.push(LocatedToken { span, token });
-                    state = TokenizerState::Start;
-                }
-                _ => {
-                    content.push(c);
-                    state = TokenizerState::InQuote { start, content };
-                }
-            },
-            TokenizerState::InWhitespace { start, mut content } => {
-                if c.is_whitespace() {
-                    content.push(c);
-                    state = TokenizerState::InWhitespace { start, content };
-                } else {
-                    let len = content.len();
-                    let token = Token::Whitespace(content);
-                    let span = Span { lo: start, len };
-                    tokens.push(LocatedToken { span, token });
-                    match c {
-                        '\'' => {
-                            let start = i;
-                            let mut content = String::new();
-                            content.push(c);
-                            state = TokenizerState::InQuote { start, content };
-                        }
-                        '=' => {
-                            let token = Token::Equals;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        '(' => {
-                            let token = Token::LeftBracket;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        ')' => {
-                            let token = Token::RightBracket;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        ':' => {
-                            let token = Token::Colon;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        ',' => {
-                            let token = Token::Comma;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        _ => {
-                            if c.is_alphabetic() {
-                                let start = i;
-                                let mut content = String::new();
-                                content.push(c);
-                                state = TokenizerState::InIdentifier { start, content };
-                            } else if c.is_whitespace() {
-                                let start = i;
-                                let mut content = String::new();
-                                content.push(c);
-                                state = TokenizerState::InWhitespace { start, content };
-                            } else if c.is_digit(10)
-                                || c == '.'
-                                || c == 'e'
-                                || c == 'E'
-                                || c == '-'
-                                || c == '+'
-                            {
-                                let mut content = String::new();
-                                content.push(c);
-                                state = TokenizerState::InNumber { start: i, content };
-                            } else {
-                                panic!("{} is an invalid character", c)
-                            }
-                        }
-                    }
-                }
-            }
-            TokenizerState::InIdentifier { start, mut content } => {
-                if c.is_whitespace() {
-                    let len = content.len();
-                    let token = Token::Identifier(content);
-                    let span = Span { lo: start, len };
-                    tokens.push(LocatedToken { span, token });
-                    let start = i;
-                    let mut content = String::new();
-                    content.push(c);
-                    state = TokenizerState::InWhitespace { start, content };
-                } else if c.is_alphabetic() || c == '_' {
-                    content.push(c);
-                    state = TokenizerState::InIdentifier { start, content };
-                } else {
-                    let len = content.len();
-                    let token = Token::Identifier(content);
-                    let span = Span { lo: start, len };
-                    tokens.push(LocatedToken { span, token });
-                    match c {
-                        '\'' => {
-                            let start = i;
-                            let mut content = String::new();
-                            content.push(c);
-                            state = TokenizerState::InQuote { start, content };
-                        }
-                        '=' => {
-                            let token = Token::Equals;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        '(' => {
-                            let token = Token::LeftBracket;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        ')' => {
-                            let token = Token::RightBracket;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        ':' => {
-                            let token = Token::Colon;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        ',' => {
-                            let token = Token::Comma;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        _ => {
-                            if c.is_digit(10) {
-                                let mut content = String::new();
-                                content.push(c);
-                                state = TokenizerState::InNumber { start: i, content };
-                            } else {
-                                panic!("{} is an invalid character", c)
-                            }
-                        }
-                    }
-                }
-            }
-            TokenizerState::InNumber { start, mut content } => {
-                if c.is_digit(10) || c == '.' || c == 'e' || c == '-' {
-                    content.push(c);
-                    state = TokenizerState::InNumber { start, content };
-                } else {
-                    let len = content.len();
-                    let token = Token::Number(content);
-                    let span = Span { lo: start, len };
-                    tokens.push(LocatedToken { span, token });
-                    match c {
-                        '\'' => {
-                            let start = i;
-                            let mut content = String::new();
-                            content.push(c);
-                            state = TokenizerState::InQuote { start, content };
-                        }
-                        '=' => {
-                            let token = Token::Equals;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        '(' => {
-                            let token = Token::LeftBracket;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        ')' => {
-                            let token = Token::RightBracket;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        ':' => {
-                            let token = Token::Colon;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        ',' => {
-                            let token = Token::Comma;
-                            let span = Span { lo: i, len: 1 };
-                            tokens.push(LocatedToken { span, token });
-                            state = TokenizerState::Start;
-                        }
-                        _ => {
-                            if c.is_alphabetic() {
-                                let start = i;
-                                let mut content = String::new();
-                                content.push(c);
-                                state = TokenizerState::InIdentifier { start, content };
-                            } else if c.is_whitespace() {
-                                let start = i;
-                                let mut content = String::new();
-                                content.push(c);
-                                state = TokenizerState::InWhitespace { start, content };
-                            } else {
-                                panic!("{} is an invalid character", c)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    match state {
-        TokenizerState::Start => {}
-        TokenizerState::InQuote { .. } => {
-            panic!("Unclosed quoted string")
-        }
-        TokenizerState::InWhitespace { start, content } => {
-            let len = content.len();
-            let token = Token::Whitespace(content);
-            let span = Span { lo: start, len };
-            tokens.push(LocatedToken { span, token });
-        }
-        TokenizerState::InIdentifier { start, content } => {
-            let len = content.len();
-            let token = Token::Identifier(content);
-            let span = Span { lo: start, len };
-            tokens.push(LocatedToken { span, token });
-        }
-        TokenizerState::InNumber { start, content } => {
-            let len = content.len();
-            let token = Token::Number(content);
-            let span = Span { lo: start, len };
-            tokens.push(LocatedToken { span, token });
-        }
-    }
-    tokens
+pub struct TokenIter<'a> {
+    iter: Peekable<CharIndices<'a>>,
+    buf: Option<(usize, char)>,
+    state: TokenizerState,
 }
+
+impl<'a> TokenIter<'a> {
+    pub fn new(input: &'a str) -> Self {
+        Self {
+            iter: input.char_indices().peekable(),
+            buf: None,
+            state: TokenizerState::Start,
+        }
+    }
+}
+
+impl<'a> Iterator for TokenIter<'a> {
+    type Item = LocatedToken;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some((i, c)) = self.buf.take().or_else(|| self.iter.next()) {
+                match &mut self.state {
+                    TokenizerState::Start => {
+                        if c.is_whitespace() {
+                            let start = i;
+                            let mut content = String::new();
+                            content.push(c);
+                            self.state = TokenizerState::InWhitespace { start, content };
+                        } else {
+                            match c {
+                                '\'' => {
+                                    let start = i;
+                                    let mut content = String::new();
+                                    content.push(c);
+                                    self.state = TokenizerState::InQuote { start, content };
+                                }
+                                '=' => {
+                                    let token = Token::Equals;
+                                    let span = Span { lo: i, len: 1 };
+                                    let token = LocatedToken { span, token };
+                                    self.state = TokenizerState::Start;
+                                    break Some(token);
+                                }
+                                '(' => {
+                                    let token = Token::LeftBracket;
+                                    let span = Span { lo: i, len: 1 };
+                                    let token = LocatedToken { span, token };
+                                    self.state = TokenizerState::Start;
+                                    break Some(token);
+                                }
+                                ')' => {
+                                    let token = Token::RightBracket;
+                                    let span = Span { lo: i, len: 1 };
+                                    let token = LocatedToken { span, token };
+                                    self.state = TokenizerState::Start;
+                                    break Some(token);
+                                }
+                                ':' => {
+                                    let token = Token::Colon;
+                                    let span = Span { lo: i, len: 1 };
+                                    let token = LocatedToken { span, token };
+                                    self.state = TokenizerState::Start;
+                                    break Some(token);
+                                }
+                                ',' => {
+                                    let token = Token::Comma;
+                                    let span = Span { lo: i, len: 1 };
+                                    let token = LocatedToken { span, token };
+                                    self.state = TokenizerState::Start;
+                                    break Some(token);
+                                }
+                                _ => {
+                                    if c.is_alphabetic() {
+                                        let start = i;
+                                        let mut content = String::new();
+                                        content.push(c);
+                                        self.state =
+                                            TokenizerState::InIdentifier { start, content };
+                                    } else if c.is_whitespace() {
+                                        let start = i;
+                                        let mut content = String::new();
+                                        content.push(c);
+                                        self.state =
+                                            TokenizerState::InWhitespace { start, content };
+                                    } else if c.is_digit(10) || c == '-' {
+                                        let mut content = String::new();
+                                        content.push(c);
+                                        self.state = TokenizerState::InNumber { start: i, content };
+                                    } else {
+                                        panic!("{} is an invalid character", c)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    TokenizerState::InQuote { start, content } => match c {
+                        '\'' => {
+                            content.push(c);
+                            let len = content.len();
+                            let value = std::mem::take(content);
+                            let token = LocatedToken {
+                                span: Span { lo: *start, len },
+                                token: Token::QuotedStr(value),
+                            };
+                            self.state = TokenizerState::Start;
+                            break Some(token);
+                        }
+                        _ => {
+                            content.push(c);
+                        }
+                    },
+                    TokenizerState::InWhitespace { start, content } => {
+                        if c.is_whitespace() {
+                            content.push(c);
+                        } else {
+                            let len = content.len();
+                            let value = std::mem::take(content);
+                            let token = LocatedToken {
+                                span: Span { lo: *start, len },
+                                token: Token::Whitespace(value),
+                            };
+                            match c {
+                                '\'' => {
+                                    let start = i;
+                                    let mut content = String::new();
+                                    content.push(c);
+                                    self.state = TokenizerState::InQuote { start, content };
+                                }
+                                '=' | '(' | ')' | ':' | ',' => {
+                                    self.buf.replace((i, c));
+                                    self.state = TokenizerState::Start;
+                                }
+                                _ => {
+                                    if c.is_alphabetic() {
+                                        let start = i;
+                                        let mut content = String::new();
+                                        content.push(c);
+                                        self.state =
+                                            TokenizerState::InIdentifier { start, content };
+                                    } else if c.is_whitespace() {
+                                        let start = i;
+                                        let mut content = String::new();
+                                        content.push(c);
+                                        self.state =
+                                            TokenizerState::InWhitespace { start, content };
+                                    } else if c.is_digit(10)
+                                        || c == '.'
+                                        || c == 'e'
+                                        || c == 'E'
+                                        || c == '-'
+                                        || c == '+'
+                                    {
+                                        let mut content = String::new();
+                                        content.push(c);
+                                        self.state = TokenizerState::InNumber { start: i, content };
+                                    } else {
+                                        panic!("{} is an invalid character", c)
+                                    }
+                                }
+                            }
+                            break Some(token);
+                        }
+                    }
+                    TokenizerState::InIdentifier { start, content } => {
+                        if c.is_alphanumeric() || c == '_' {
+                            content.push(c);
+                        } else {
+                            let len = content.len();
+                            let value = std::mem::take(content);
+                            let span = Span { lo: *start, len };
+                            let token = Token::Identifier(value);
+                            self.buf.replace((i, c));
+                            self.state = TokenizerState::Start;
+                            break Some(LocatedToken { span, token });
+                        }
+                    }
+                    TokenizerState::InNumber { start, content } => {
+                        if c.is_digit(10) || c == '.' || c == 'e' || c == '-' {
+                            content.push(c);
+                        } else {
+                            let len = content.len();
+                            let value = std::mem::take(content);
+                            let token = LocatedToken {
+                                span: Span { lo: *start, len },
+                                token: Token::Number(value),
+                            };
+                            match c {
+                                '\'' => {
+                                    let start = i;
+                                    let mut content = String::new();
+                                    content.push(c);
+                                    self.state = TokenizerState::InQuote { start, content };
+                                }
+                                '=' | '(' | ')' | ':' | ',' => {
+                                    self.buf.replace((i, c));
+                                    self.state = TokenizerState::Start;
+                                }
+                                _ => {
+                                    if c.is_alphabetic() {
+                                        let start = i;
+                                        let mut content = String::new();
+                                        content.push(c);
+                                        self.state =
+                                            TokenizerState::InIdentifier { start, content };
+                                    } else if c.is_whitespace() {
+                                        let start = i;
+                                        let mut content = String::new();
+                                        content.push(c);
+                                        self.state =
+                                            TokenizerState::InWhitespace { start, content };
+                                    } else {
+                                        panic!("{} is an invalid character", c);
+                                    }
+                                }
+                            }
+                            break Some(token);
+                        }
+                    }
+                }
+            } else {
+                match &mut self.state {
+                    TokenizerState::Start => {
+                        break None;
+                    }
+                    TokenizerState::InQuote { .. } => {
+                        panic!("Unclosed quoted string")
+                    }
+                    TokenizerState::InWhitespace { start, content } => {
+                        let len = content.len();
+                        let value = std::mem::take(content);
+                        let token = Token::Whitespace(value);
+                        let span = Span { lo: *start, len };
+                        self.state = TokenizerState::Start;
+                        break Some(LocatedToken { span, token });
+                    }
+                    TokenizerState::InIdentifier { start, content } => {
+                        let len = content.len();
+                        let value = std::mem::take(content);
+                        let token = Token::Identifier(value);
+                        let span = Span { lo: *start, len };
+                        self.state = TokenizerState::Start;
+                        break Some(LocatedToken { span, token });
+                    }
+                    TokenizerState::InNumber { start, content } => {
+                        let len = content.len();
+                        let value = std::mem::take(content);
+                        let token = Token::Number(value);
+                        let span = Span { lo: *start, len };
+                        self.state = TokenizerState::Start;
+                        break Some(LocatedToken { span, token });
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn tokenize_nml(input: &str) -> Vec<LocatedToken> {
+    let iter = TokenIter::new(input);
+    iter.collect()
+}
+
+// fn render_tokens(tokens:&[LocatedToken]) -> String {
+//     let mut s = String::new();
+//     for token
+// }
 
 #[cfg(test)]
 mod tests {
@@ -407,6 +354,27 @@ mod tests {
                 }
             ],
             tokens
+        );
+    }
+
+    #[test]
+    fn trivial_tokens3() {
+        assert_eq!(
+            tokenize_nml(")=2"),
+            vec![
+                LocatedToken {
+                    span: Span { lo: 0, len: 1 },
+                    token: Token::RightBracket
+                },
+                LocatedToken {
+                    span: Span { lo: 1, len: 1 },
+                    token: Token::Equals
+                },
+                LocatedToken {
+                    span: Span { lo: 2, len: 1 },
+                    token: Token::Number("2".to_string())
+                },
+            ]
         );
     }
 
