@@ -5,11 +5,11 @@ pub mod tokenizer;
 //     pub namelists: Vec<Namelist>,
 // }
 
-// #[derive(Clone, Debug, PartialEq)]
-// pub struct Namelist {
-//     pub name: String,
-//     pub parameters: HashMap<String, ParameterValue>,
-// }
+#[derive(Clone, Debug, PartialEq)]
+pub struct Namelist {
+    pub tokens: Vec<LocatedToken>, // pub name: String,
+                                   //     pub parameters: HashMap<String, ParameterValue>
+}
 
 // impl TryFrom<(String, Vec<Token>)> for Namelist {
 //     type Error = &'static str;
@@ -556,92 +556,74 @@ pub mod tokenizer;
 // }
 
 // #[derive(Debug)]
-// pub struct NmlParser<R> {
-//     reader: BufReader<R>,
-//     current_nml: Option<(String, Vec<Token>)>,
-//     buf: String,
-//     // We are on the last iteration.
-//     last: bool,
-// }
+pub struct NmlParser<R: Read> {
+    tokenizer: TokenIter<R>,
+    // current_nml: Option<(String, Vec<Token>)>,
+    buf: String,
+    // We are on the last iteration.
+    last: bool,
+    state: ParserState,
+    next_namelist: Vec<LocatedToken>,
+}
 
-// impl<R: Read> NmlParser<R> {
-//     pub fn new(input: R) -> Self {
-//         NmlParser {
-//             reader: BufReader::new(input),
-//             current_nml: None,
-//             buf: String::new(),
-//             last: false,
-//         }
-//     }
-// }
+impl<R: Read> NmlParser<R> {
+    pub fn new(input: R) -> Self {
+        NmlParser {
+            tokenizer: TokenIter::new(input),
+            // current_nml: None,
+            buf: String::new(),
+            last: false,
+            state: ParserState::Start,
+            next_namelist: Vec::new(),
+        }
+    }
+}
 
-// impl<R: Read> Iterator for NmlParser<R> {
-//     type Item = Namelist;
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ParserState {
+    Start,
+    InNamelist,
+}
 
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if self.last == true {
-//             return None;
-//         }
-//         // Iterate through all the lines, parsing as we go. Each loop iteration is
-//         // for a single namelist.
-//         loop {
-//             // If we already have a line in the buffer, use that, else get a new
-//             // one.
-//             if self.buf.len() == 0 {
-//                 // Get a new line.
-//                 let n = self
-//                     .reader
-//                     .read_line(&mut self.buf)
-//                     .expect("read_line failed");
-//                 if n == 0 {
-//                     // There is no data left. If we have a current nml, we
-//                     // return that, otherwise we just return None.
-//                     self.last = true;
-//                     break self.current_nml.clone().map(|x| x.try_into().unwrap());
-//                 }
-//             }
-//             let mut line: &str = self.buf.trim();
-//             // If the line (after whitespace) begins with an ampersand, it is a new
-//             // namelist.
-//             if line.starts_with("&") {
-//                 // If we currently have an nml we are working on, return that.
-//                 // We need to make sure that on the next iteration we are in the
-//                 // right position to get the next nml. This includes setting the
-//                 // "current_nml" buffer to None, and leaving the line buffer
-//                 // as-is.
-//                 if self.current_nml.is_some() {
-//                     let current_nml = self.current_nml.clone().expect("no current nml");
-//                     self.current_nml = None;
-//                     break Some(current_nml.try_into().unwrap());
-//                 }
-//                 // First, skip the ampersand character.
-//                 let i = &line[1..];
-//                 // Parse the type of NML.
-//                 let (i, nml_type) = parse_nml_name_str(i).expect("invalid namelist group");
-//                 // Create an empty namelist to be parsing.
-//                 self.current_nml = Some((nml_type, Vec::new()));
-//                 // Make sure to set the start the start of the tokens.
-//                 line = i;
-//             } else if line.starts_with('!') {
-//                 // Skip comments
-//                 self.buf.clear();
-//                 continue;
-//             }
+impl<R: Read> Iterator for NmlParser<R> {
+    type Item = Namelist;
 
-//             if self.current_nml.is_some() {
-//                 // Tokenize the rest of the line.
-//                 let mut tokens = tokenize_nml(line);
-//                 // assert_eq!(i,"");
-//                 let current_nml = self.current_nml.as_mut().expect("could not add to no current nml");
-//                 // TODO: reenable next line
-//                 // current_nml.1.append(&mut tokens);
-//                 // If the line does not start with '&' it is either empty or a comment,
-//                 // so we just continue looping.
-//             }
-//             self.buf.clear();
-//         }
-//     }
-// }
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let token = if let Some(token) = self.tokenizer.next().map(|x| x.unwrap()) {
+                token
+            } else if !self.next_namelist.is_empty() {
+                let tokens = std::mem::take(&mut self.next_namelist);
+                break Some(Namelist { tokens });
+            } else {
+                break None;
+            };
+            match self.state {
+                ParserState::Start => {
+                    if token.token == Token::Ampersand {
+                        self.next_namelist.push(token);
+                        self.state = ParserState::InNamelist;
+                    }
+                }
+                ParserState::InNamelist => {
+                    if token.token == Token::Ampersand {
+                        self.state = ParserState::Start;
+                        let tokens = std::mem::take(&mut self.next_namelist);
+                        self.next_namelist.push(token);
+                        break Some(Namelist { tokens });
+                    } else if token.token == Token::RightSlash {
+                        self.next_namelist.push(token);
+                        self.state = ParserState::Start;
+                        let tokens = std::mem::take(&mut self.next_namelist);
+                        break Some(Namelist { tokens });
+                    } else {
+                        self.next_namelist.push(token);
+                    }
+                }
+            }
+        }
+    }
+}
 
 // // TODO: add source location
 // pub fn parse_token(i: &str) -> IResult<&str, Token> {
@@ -680,51 +662,84 @@ pub mod tokenizer;
 //     }
 // }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::tokenizer::tokenize_nml;
+use std::io::Read;
 
-//     use super::*;
+use tokenizer::{LocatedToken, Token, TokenIter};
 
-//     #[test]
-//     fn boolean_examples() {
-//         assert_eq!("t".parse(), Ok(NmlBool(true)));
-//         assert_eq!("T".parse(), Ok(NmlBool(true)));
-//         assert_eq!("f".parse(), Ok(NmlBool(false)));
-//         assert_eq!("F".parse(), Ok(NmlBool(false)));
-//         assert_eq!(".FALSE.".parse(), Ok(NmlBool(false)));
-//         assert_eq!(".TRUE.".parse(), Ok(NmlBool(true)));
-//     }
+#[cfg(test)]
+mod tests {
+    //     use crate::tokenizer::tokenize_nml;
 
-//     #[test]
-//     fn int_examples() {
-//         assert_eq!("-2".parse(), Ok(NmlInt(-2)));
-//         assert_eq!("60".parse(), Ok(NmlInt(60)));
-//     }
+    use crate::tokenizer::Span;
 
-//     #[test]
-//     fn double_examples() {
-//         assert_eq!("1E13".parse(), Ok(NmlFloat(1e13)));
-//         assert_eq!("2.75E12".parse(), Ok(NmlFloat(2.75e12)));
-//     }
+    use super::*;
 
-//     #[test]
-//     fn string_examples() {
-//         assert_eq!("\'hello\'".parse(), Ok(NmlString("hello".to_string())));
-//     }
+    //     #[test]
+    //     fn boolean_examples() {
+    //         assert_eq!("t".parse(), Ok(NmlBool(true)));
+    //         assert_eq!("T".parse(), Ok(NmlBool(true)));
+    //         assert_eq!("f".parse(), Ok(NmlBool(false)));
+    //         assert_eq!("F".parse(), Ok(NmlBool(false)));
+    //         assert_eq!(".FALSE.".parse(), Ok(NmlBool(false)));
+    //         assert_eq!(".TRUE.".parse(), Ok(NmlBool(true)));
+    //     }
 
-//     #[test]
-//     fn float_check() {
-//         assert_eq!("1.1".parse(), Ok(NmlFloat(1.1)));
-//         assert_eq!("123E-02".parse(), Ok(NmlFloat(1.23)));
-//     }
+    //     #[test]
+    //     fn int_examples() {
+    //         assert_eq!("-2".parse(), Ok(NmlInt(-2)));
+    //         assert_eq!("60".parse(), Ok(NmlInt(60)));
+    //     }
 
-//     #[test]
-//     fn nml_iter() {
-//         let f = std::fs::File::open("room_fire.fds").expect("could not open test file");
-//         let parser = NmlParser::new(f);
-//         for nml in parser {
-//             println!("NML: {:?}", nml);
-//         }
-//     }
-// }
+    //     #[test]
+    //     fn double_examples() {
+    //         assert_eq!("1E13".parse(), Ok(NmlFloat(1e13)));
+    //         assert_eq!("2.75E12".parse(), Ok(NmlFloat(2.75e12)));
+    //     }
+
+    //     #[test]
+    //     fn string_examples() {
+    //         assert_eq!("\'hello\'".parse(), Ok(NmlString("hello".to_string())));
+    //     }
+
+    //     #[test]
+    //     fn float_check() {
+    //         assert_eq!("1.1".parse(), Ok(NmlFloat(1.1)));
+    //         assert_eq!("123E-02".parse(), Ok(NmlFloat(1.23)));
+    //     }
+
+    #[test]
+    fn single_nml() {
+        let input = "&Head val = 2 /";
+        let parser = NmlParser::new(std::io::Cursor::new(input));
+        let nmls: Vec<Vec<Token>> = parser
+            .map(|nml| {
+                let tokens: Vec<Token> = nml.tokens.into_iter().map(|x| x.token).collect();
+                tokens
+            })
+            .collect();
+        let expected = vec![vec![
+            Token::Ampersand,
+            Token::Identifier("Head".to_string()),
+            Token::Whitespace(" ".to_string()),
+            Token::Identifier("val".to_string()),
+            Token::Whitespace(" ".to_string()),
+            Token::Equals,
+            Token::Whitespace(" ".to_string()),
+            Token::Number("2".to_string()),
+            Token::Whitespace(" ".to_string()),
+            Token::RightSlash,
+        ]];
+        assert_eq!(nmls, expected);
+        // assert_eq!("1.1".parse(), Ok(NmlFloat(1.1)));
+        // assert_eq!("123E-02".parse(), Ok(NmlFloat(1.23)));
+    }
+
+    //     #[test]
+    //     fn nml_iter() {
+    //         let f = std::fs::File::open("room_fire.fds").expect("could not open test file");
+    //         let parser = NmlParser::new(f);
+    //         for nml in parser {
+    //             println!("NML: {:?}", nml);
+    //         }
+    //     }
+}

@@ -6,14 +6,14 @@ use utf8::{self, BufReadDecoder};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Span {
-    lo: usize,
-    len: usize,
+    pub lo: usize,
+    pub len: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LocatedToken {
-    span: Span,
-    token: Token,
+    pub span: Span,
+    pub token: Token,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -41,23 +41,23 @@ pub enum TokenizerState {
     InWhitespace { start: usize, content: String },
 }
 
-pub struct CharDecoder<B: std::io::BufRead> {
-    iter: BufReadDecoder<B>,
+pub struct CharDecoder<R: std::io::Read> {
+    iter: BufReadDecoder<std::io::BufReader<R>>,
     offset: usize,
     chars: VecDeque<(usize, char)>,
 }
 
-impl<B: BufRead> CharDecoder<B> {
-    pub fn new(input: B) -> Self {
+impl<R: Read> CharDecoder<R> {
+    pub fn new(input: R) -> Self {
         Self {
-            iter: BufReadDecoder::new(input),
+            iter: BufReadDecoder::new(std::io::BufReader::new(input)),
             chars: VecDeque::new(),
             offset: 0,
         }
     }
 }
 
-impl<B: BufRead> Iterator for CharDecoder<B> {
+impl<R: Read> Iterator for CharDecoder<R> {
     type Item = Result<(usize, char), ()>;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -79,23 +79,23 @@ impl<B: BufRead> Iterator for CharDecoder<B> {
     }
 }
 
-pub struct TokenIter<B: std::io::BufRead> {
-    iter: CharDecoder<B>,
+pub struct TokenIter<B: std::io::Read> {
+    iter: CharDecoder<std::io::BufReader<B>>,
     buf: Option<(usize, char)>,
     state: TokenizerState,
 }
 
-impl<B: std::io::BufRead> TokenIter<B> {
-    pub fn new(input: B) -> Self {
+impl<R: std::io::Read> TokenIter<R> {
+    pub fn new(input: R) -> Self {
         Self {
-            iter: CharDecoder::new(input),
+            iter: CharDecoder::new(std::io::BufReader::new(input)),
             buf: None,
             state: TokenizerState::Start,
         }
     }
 }
 
-impl<B: std::io::BufRead> Iterator for TokenIter<B> {
+impl<R: std::io::Read> Iterator for TokenIter<R> {
     type Item = Result<LocatedToken, ()>;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -225,7 +225,7 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
                                     content.push(c);
                                     self.state = TokenizerState::InQuote { start, content };
                                 }
-                                '=' | '(' | ')' | ':' | ',' => {
+                                '=' | '(' | ')' | ':' | ',' | '/' | '&' => {
                                     self.buf.replace((i, c));
                                     self.state = TokenizerState::Start;
                                 }
@@ -359,7 +359,6 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
 }
 
 pub fn tokenize_reader<R: Read>(input: R) -> Vec<LocatedToken> {
-    let input = std::io::BufReader::new(input);
     let iter = TokenIter::new(input).map(|x| x.unwrap());
     iter.collect()
 }
