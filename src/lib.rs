@@ -1,9 +1,10 @@
+pub mod namelists;
 pub mod tokenizer;
 
-// #[derive(Clone, Debug, PartialEq)]
-// pub struct NamelistFile {
-//     pub namelists: Vec<Namelist>,
-// }
+#[derive(Clone, Debug, PartialEq)]
+pub struct NamelistFile {
+    pub namelists: Vec<Namelist>,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Namelist {
@@ -555,13 +556,8 @@ pub struct Namelist {
 //     }
 // }
 
-// #[derive(Debug)]
 pub struct NmlParser<R: Read> {
     tokenizer: TokenIter<R>,
-    // current_nml: Option<(String, Vec<Token>)>,
-    buf: String,
-    // We are on the last iteration.
-    last: bool,
     state: ParserState,
     next_namelist: Vec<LocatedToken>,
 }
@@ -570,9 +566,6 @@ impl<R: Read> NmlParser<R> {
     pub fn new(input: R) -> Self {
         NmlParser {
             tokenizer: TokenIter::new(input),
-            // current_nml: None,
-            buf: String::new(),
-            last: false,
             state: ParserState::Start,
             next_namelist: Vec::new(),
         }
@@ -589,12 +582,12 @@ impl<R: Read> Iterator for NmlParser<R> {
     type Item = Namelist;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
+        let tokens = loop {
             let token = if let Some(token) = self.tokenizer.next().map(|x| x.unwrap()) {
                 token
             } else if !self.next_namelist.is_empty() {
                 let tokens = std::mem::take(&mut self.next_namelist);
-                break Some(Namelist { tokens });
+                break Some(tokens);
             } else {
                 break None;
             };
@@ -610,68 +603,29 @@ impl<R: Read> Iterator for NmlParser<R> {
                         self.state = ParserState::Start;
                         let tokens = std::mem::take(&mut self.next_namelist);
                         self.next_namelist.push(token);
-                        break Some(Namelist { tokens });
+                        break Some(tokens);
                     } else if token.token == Token::RightSlash {
                         self.next_namelist.push(token);
                         self.state = ParserState::Start;
                         let tokens = std::mem::take(&mut self.next_namelist);
-                        break Some(Namelist { tokens });
+                        break Some(tokens);
                     } else {
                         self.next_namelist.push(token);
                     }
                 }
             }
-        }
+        }?;
+        parse_namelist(tokens)
     }
 }
 
-// // TODO: add source location
-// pub fn parse_token(i: &str) -> IResult<&str, Token> {
-//     let i = i.trim();
-//     let (i, first_char) = anychar(i)?;
-//     match first_char {
-//         '(' => Ok((i, Token::LeftBracket)),
-//         ')' => Ok((i, Token::RightBracket)),
-//         ':' => Ok((i, Token::Colon)),
-//         '=' => Ok((i, Token::Equals)),
-//         ',' => Ok((i, Token::Comma)),
-//         '/' => Ok((i, Token::RightSlash)),
-//         '\'' => {
-//             // We have begun a quoted string. Fortran (FDS at least) does not
-//             // support escapes, so we can just look for the next single quote.
-//             for c in i.char_indices() {
-//                 i.ch
-//             }
-//             let (i, mut others) = many0(nom::character::complete::none_of("'"))(i)?;
-//             let mut chars = vec!['\''];
-//             chars.append(&mut others);
-//             let (i, end_c) = char('\'')(i)?;
-//             chars.append(&mut vec![end_c]);
-//             let string: &str = chars.into_iter().collect();
-//             Ok((i, Token::Str(string)))
-//         },
-//         c => {
-//             // We have some other char and must continue until we reach some
-//             // other type [():'=] or whitespace.
-//             let (i, mut others) = many0(nom::character::complete::none_of(" \t\r\n():=',/"))(i)?;
-//             let mut chars = vec![c];
-//             chars.append(&mut others);
-//             let string: String = chars.into_iter().collect();
-//             Ok((i, Token::Str(string)))
-//         }
-//     }
-// }
-
 use std::io::Read;
 
+use namelists::parse_namelist;
 use tokenizer::{LocatedToken, Token, TokenIter};
 
 #[cfg(test)]
 mod tests {
-    //     use crate::tokenizer::tokenize_nml;
-
-    use crate::tokenizer::Span;
-
     use super::*;
 
     //     #[test]
@@ -730,8 +684,46 @@ mod tests {
             Token::RightSlash,
         ]];
         assert_eq!(nmls, expected);
-        // assert_eq!("1.1".parse(), Ok(NmlFloat(1.1)));
-        // assert_eq!("123E-02".parse(), Ok(NmlFloat(1.23)));
+    }
+    #[test]
+    fn two_nmls() {
+        let input = "&Head val = 2 /\n&DUMP x=2,3,4 /";
+        let parser = NmlParser::new(std::io::Cursor::new(input));
+        let nmls: Vec<Vec<Token>> = parser
+            .map(|nml| {
+                let tokens: Vec<Token> = nml.tokens.into_iter().map(|x| x.token).collect();
+                tokens
+            })
+            .collect();
+        let expected = vec![
+            vec![
+                Token::Ampersand,
+                Token::Identifier("Head".to_string()),
+                Token::Whitespace(" ".to_string()),
+                Token::Identifier("val".to_string()),
+                Token::Whitespace(" ".to_string()),
+                Token::Equals,
+                Token::Whitespace(" ".to_string()),
+                Token::Number("2".to_string()),
+                Token::Whitespace(" ".to_string()),
+                Token::RightSlash,
+            ],
+            vec![
+                Token::Ampersand,
+                Token::Identifier("DUMP".to_string()),
+                Token::Whitespace(" ".to_string()),
+                Token::Identifier("x".to_string()),
+                Token::Equals,
+                Token::Number("2".to_string()),
+                Token::Comma,
+                Token::Number("3".to_string()),
+                Token::Comma,
+                Token::Number("4".to_string()),
+                Token::Whitespace(" ".to_string()),
+                Token::RightSlash,
+            ],
+        ];
+        assert_eq!(nmls, expected);
     }
 
     //     #[test]

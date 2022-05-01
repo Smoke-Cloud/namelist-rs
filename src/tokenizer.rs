@@ -1,6 +1,6 @@
 use std::{
     collections::VecDeque,
-    io::{BufRead, Cursor, Read},
+    io::{Cursor, Read},
 };
 use utf8::{self, BufReadDecoder};
 
@@ -14,6 +14,15 @@ pub struct Span {
 pub struct LocatedToken {
     pub span: Span,
     pub token: Token,
+}
+
+impl LocatedToken {
+    pub fn token(&self) -> &Token {
+        &self.token
+    }
+    pub fn span(&self) -> Span {
+        self.span
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -33,6 +42,7 @@ pub enum Token {
     Number(String),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TokenizerState {
     Start,
     InQuote { start: usize, content: String },
