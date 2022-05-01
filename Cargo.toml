@@ -4,9 +4,5 @@ version = "0.2.2"
 authors = ["Jake O'Shannessy <joshannessy@gmail.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-nom = "^5"
-log = "*"
 utf-8 = "0.7"

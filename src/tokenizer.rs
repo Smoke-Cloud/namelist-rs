@@ -1,9 +1,8 @@
 use std::{
     collections::VecDeque,
-    io::{BufRead, Cursor},
-    str::CharIndices,
+    io::{BufRead, Cursor, Read},
 };
-use utf8::{self, BufReadDecoder, BufReadDecoderError};
+use utf8::{self, BufReadDecoder};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Span {
@@ -25,6 +24,7 @@ pub enum Token {
     Colon,
     Comma,
     RightSlash,
+    Ampersand,
     /// Some variable string that forms a token. Currently this could also
     /// include numbers.
     QuotedStr(String),
@@ -66,9 +66,11 @@ impl<B: BufRead> Iterator for CharDecoder<B> {
             } else {
                 match self.iter.next_strict()? {
                     Ok(next_string) => {
-                        for r in next_string.char_indices() {
+                        let offset = self.offset;
+                        for r in next_string.char_indices().map(|(i, c)| (i + offset, c)) {
                             self.chars.push_back(r);
                         }
+                        self.offset += next_string.len();
                     }
                     Err(_e) => return Some(Err(())),
                 }
@@ -147,6 +149,20 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
                                 }
                                 ',' => {
                                     let token = Token::Comma;
+                                    let span = Span { lo: i, len: 1 };
+                                    let token = LocatedToken { span, token };
+                                    self.state = TokenizerState::Start;
+                                    break Some(Ok(token));
+                                }
+                                '/' => {
+                                    let token = Token::RightSlash;
+                                    let span = Span { lo: i, len: 1 };
+                                    let token = LocatedToken { span, token };
+                                    self.state = TokenizerState::Start;
+                                    break Some(Ok(token));
+                                }
+                                '&' => {
+                                    let token = Token::Ampersand;
                                     let span = Span { lo: i, len: 1 };
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::Start;
@@ -275,7 +291,7 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
                                     content.push(c);
                                     self.state = TokenizerState::InQuote { start, content };
                                 }
-                                '=' | '(' | ')' | ':' | ',' => {
+                                '=' | '(' | ')' | ':' | ',' | '/' | '&' => {
                                     self.buf.replace((i, c));
                                     self.state = TokenizerState::Start;
                                 }
@@ -342,16 +358,17 @@ impl<B: std::io::BufRead> Iterator for TokenIter<B> {
     }
 }
 
-fn tokenize_nml(input: &str) -> Vec<LocatedToken> {
-    let input = Cursor::new(input);
+pub fn tokenize_reader<R: Read>(input: R) -> Vec<LocatedToken> {
+    let input = std::io::BufReader::new(input);
     let iter = TokenIter::new(input).map(|x| x.unwrap());
     iter.collect()
 }
 
-// fn render_tokens(tokens:&[LocatedToken]) -> String {
-//     let mut s = String::new();
-//     for token
-// }
+pub fn tokenize_str(input: &str) -> Vec<LocatedToken> {
+    let input = Cursor::new(input);
+    let iter = TokenIter::new(input).map(|x| x.unwrap());
+    iter.collect()
+}
 
 #[cfg(test)]
 mod tests {
@@ -360,7 +377,7 @@ mod tests {
     #[test]
     fn trivial_tokens1() {
         let s = "abc=2";
-        let tokens = tokenize_nml(s);
+        let tokens = tokenize_str(s);
         assert_eq!(
             vec![
                 LocatedToken {
@@ -383,7 +400,7 @@ mod tests {
     #[test]
     fn trivial_tokens2() {
         let s = "abc= 2";
-        let tokens = tokenize_nml(s);
+        let tokens = tokenize_str(s);
         assert_eq!(
             vec![
                 LocatedToken {
@@ -410,7 +427,7 @@ mod tests {
     #[test]
     fn trivial_tokens3() {
         assert_eq!(
-            tokenize_nml(")=2"),
+            tokenize_str(")=2"),
             vec![
                 LocatedToken {
                     span: Span { lo: 0, len: 1 },
@@ -429,9 +446,40 @@ mod tests {
     }
 
     #[test]
+    fn trivial_tokens4() {
+        let s = "&abc=2/";
+        let tokens = tokenize_str(s);
+        assert_eq!(
+            vec![
+                LocatedToken {
+                    span: Span { lo: 0, len: 1 },
+                    token: Token::Ampersand,
+                },
+                LocatedToken {
+                    span: Span { lo: 1, len: 3 },
+                    token: Token::Identifier("abc".to_string()),
+                },
+                LocatedToken {
+                    span: Span { lo: 4, len: 1 },
+                    token: Token::Equals,
+                },
+                LocatedToken {
+                    span: Span { lo: 5, len: 1 },
+                    token: Token::Number("2".to_string()),
+                },
+                LocatedToken {
+                    span: Span { lo: 6, len: 1 },
+                    token: Token::RightSlash,
+                },
+            ],
+            tokens
+        );
+    }
+
+    #[test]
     fn simple_tokens1() {
         let s = "abc=2,'ad c' (2,:)";
-        let tokens = tokenize_nml(s);
+        let tokens = tokenize_str(s);
         let expected = vec![
             LocatedToken {
                 span: Span { lo: 0, len: 3 },
@@ -484,7 +532,7 @@ mod tests {
     #[test]
     fn simple_tokens2() {
         assert_eq!(
-            tokenize_nml("TEMPERATURES(1:2)=273.15, 274"),
+            tokenize_str("TEMPERATURES(1:2)=273.15, 274"),
             vec![
                 LocatedToken {
                     span: Span { lo: 0, len: 12 },
@@ -537,7 +585,7 @@ mod tests {
     #[test]
     fn simple_tokens3() {
         assert_eq!(
-            tokenize_nml("TEMPERATURES(1:2)=273.15, \n 274"),
+            tokenize_str("TEMPERATURES(1:2)=273.15, \n 274"),
             vec![
                 LocatedToken {
                     span: Span { lo: 0, len: 12 },

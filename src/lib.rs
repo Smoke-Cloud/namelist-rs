@@ -1,18 +1,4 @@
-// use log::debug;
-// use nom::{
-//     branch::alt,
-//     character::complete::{alphanumeric1, anychar, char, none_of},
-//     combinator::peek,
-//     multi::{many0, many1},
-//     IResult,
-// };
-// use tokenizer::{Token, tokenize_nml};
-// use std::collections::HashMap;
-// use std::convert::{TryFrom, TryInto};
-// use std::io::Read;
-// use std::io::{BufRead, BufReader};
-// use std::str::FromStr;
-mod tokenizer;
+pub mod tokenizer;
 
 // #[derive(Clone, Debug, PartialEq)]
 // pub struct NamelistFile {
