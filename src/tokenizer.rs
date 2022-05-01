@@ -1,4 +1,9 @@
-use std::{iter::Peekable, str::CharIndices};
+use std::{
+    collections::VecDeque,
+    io::{BufRead, Cursor},
+    str::CharIndices,
+};
+use utf8::{self, BufReadDecoder, BufReadDecoderError};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Span {
@@ -36,27 +41,67 @@ pub enum TokenizerState {
     InWhitespace { start: usize, content: String },
 }
 
-pub struct TokenIter<'a> {
-    iter: Peekable<CharIndices<'a>>,
+pub struct CharDecoder<B: std::io::BufRead> {
+    iter: BufReadDecoder<B>,
+    offset: usize,
+    chars: VecDeque<(usize, char)>,
+}
+
+impl<B: BufRead> CharDecoder<B> {
+    pub fn new(input: B) -> Self {
+        Self {
+            iter: BufReadDecoder::new(input),
+            chars: VecDeque::new(),
+            offset: 0,
+        }
+    }
+}
+
+impl<B: BufRead> Iterator for CharDecoder<B> {
+    type Item = Result<(usize, char), ()>;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(res) = self.chars.pop_front() {
+                return Some(Ok(res));
+            } else {
+                match self.iter.next_strict()? {
+                    Ok(next_string) => {
+                        for r in next_string.char_indices() {
+                            self.chars.push_back(r);
+                        }
+                    }
+                    Err(_e) => return Some(Err(())),
+                }
+            }
+        }
+    }
+}
+
+pub struct TokenIter<B: std::io::BufRead> {
+    iter: CharDecoder<B>,
     buf: Option<(usize, char)>,
     state: TokenizerState,
 }
 
-impl<'a> TokenIter<'a> {
-    pub fn new(input: &'a str) -> Self {
+impl<B: std::io::BufRead> TokenIter<B> {
+    pub fn new(input: B) -> Self {
         Self {
-            iter: input.char_indices().peekable(),
+            iter: CharDecoder::new(input),
             buf: None,
             state: TokenizerState::Start,
         }
     }
 }
 
-impl<'a> Iterator for TokenIter<'a> {
+impl<B: std::io::BufRead> Iterator for TokenIter<B> {
     type Item = LocatedToken;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some((i, c)) = self.buf.take().or_else(|| self.iter.next()) {
+            if let Some((i, c)) = self
+                .buf
+                .take()
+                .or_else(|| self.iter.next().map(|x| x.unwrap()))
+            {
                 match &mut self.state {
                     TokenizerState::Start => {
                         if c.is_whitespace() {
@@ -294,6 +339,7 @@ impl<'a> Iterator for TokenIter<'a> {
 }
 
 fn tokenize_nml(input: &str) -> Vec<LocatedToken> {
+    let input = Cursor::new(input);
     let iter = TokenIter::new(input);
     iter.collect()
 }
