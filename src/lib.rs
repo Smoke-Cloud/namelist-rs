@@ -114,6 +114,8 @@ use tokenizer::{LocatedToken, Token, TokenIter};
 
 #[cfg(test)]
 mod tests {
+    use crate::tokenizer::Span;
+
     use super::*;
 
     //     #[test]
@@ -153,24 +155,51 @@ mod tests {
     fn single_nml() {
         let input = "&Head val = 2 /";
         let parser = NmlParser::new(std::io::Cursor::new(input));
-        let nmls: Vec<Vec<Token>> = parser
-            .map(|nml| {
-                let tokens: Vec<Token> = nml.into_tokens().into_iter().map(|x| x.token).collect();
-                tokens
-            })
-            .collect();
-        let expected = vec![vec![
-            Token::Ampersand,
-            Token::Identifier("Head".to_string()),
-            Token::Whitespace(" ".to_string()),
-            Token::Identifier("val".to_string()),
-            Token::Whitespace(" ".to_string()),
-            Token::Equals,
-            Token::Whitespace(" ".to_string()),
-            Token::Number("2".to_string()),
-            Token::Whitespace(" ".to_string()),
-            Token::RightSlash,
-        ]];
+        let nmls: Vec<Namelist> = parser.collect();
+        let expected = vec![Namelist::Actual {
+            tokens: vec![
+                LocatedToken {
+                    token: Token::Ampersand,
+                    span: Span { lo: 0, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Identifier("Head".to_string()),
+                    span: Span { lo: 1, len: 4 },
+                },
+                LocatedToken {
+                    token: Token::Whitespace(" ".to_string()),
+                    span: Span { lo: 5, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Identifier("val".to_string()),
+                    span: Span { lo: 6, len: 3 },
+                },
+                LocatedToken {
+                    token: Token::Whitespace(" ".to_string()),
+                    span: Span { lo: 9, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Equals,
+                    span: Span { lo: 10, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Whitespace(" ".to_string()),
+                    span: Span { lo: 11, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Number("2".to_string()),
+                    span: Span { lo: 12, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Whitespace(" ".to_string()),
+                    span: Span { lo: 13, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::RightSlash,
+                    span: Span { lo: 14, len: 1 },
+                },
+            ],
+        }];
         assert_eq!(nmls, expected);
     }
 
