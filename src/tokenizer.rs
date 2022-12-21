@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    fmt::Display,
     io::{Cursor, Read},
 };
 use utf8::{self, BufReadDecoder};
@@ -25,6 +26,12 @@ impl LocatedToken {
     }
 }
 
+impl Display for LocatedToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.token)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Token {
     LeftBracket,
@@ -34,6 +41,7 @@ pub enum Token {
     Comma,
     RightSlash,
     Ampersand,
+    NewLine,
     /// Some variable string that forms a token. Currently this could also
     /// include numbers.
     QuotedStr(String),
@@ -41,6 +49,26 @@ pub enum Token {
     Identifier(String),
     Number(String),
     Comment(String),
+}
+
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LeftBracket => write!(f, "("),
+            Self::RightBracket => write!(f, ")"),
+            Self::Equals => write!(f, "="),
+            Self::Colon => write!(f, ":"),
+            Self::Comma => write!(f, ","),
+            Self::RightSlash => write!(f, "/"),
+            Self::Ampersand => write!(f, "&"),
+            Self::NewLine => writeln!(f),
+            Self::QuotedStr(s) => write!(f, "{s}"),
+            Self::Whitespace(s) => write!(f, "{s}"),
+            Self::Identifier(s) => write!(f, "{s}"),
+            Self::Number(s) => write!(f, "{s}"),
+            Self::Comment(s) => write!(f, "{s}"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -199,7 +227,7 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                         content.push(c);
                                         self.state =
                                             TokenizerState::InWhitespace { start, content };
-                                    } else if c.is_digit(10) || c == '-' {
+                                    } else if c.is_ascii_digit() || c == '-' {
                                         let mut content = String::new();
                                         content.push(c);
                                         self.state = TokenizerState::InNumber { start: i, content };
@@ -276,7 +304,7 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                         content.push(c);
                                         self.state =
                                             TokenizerState::InWhitespace { start, content };
-                                    } else if c.is_digit(10)
+                                    } else if c.is_ascii_digit()
                                         || c == '.'
                                         || c == 'e'
                                         || c == 'E'
@@ -286,6 +314,11 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                         let mut content = String::new();
                                         content.push(c);
                                         self.state = TokenizerState::InNumber { start: i, content };
+                                    } else if c == '!' {
+                                        let start = i;
+                                        let mut content = String::new();
+                                        content.push(c);
+                                        self.state = TokenizerState::InComment { start, content };
                                     } else {
                                         panic!("{} is an invalid character", c)
                                     }
@@ -309,7 +342,7 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                         }
                     }
                     TokenizerState::InNumber { start, content } => {
-                        if c.is_digit(10) || c == '.' || c == 'e' || c == '-' {
+                        if c.is_ascii_digit() || c == '.' || c == 'e' || c == '-' {
                             content.push(c);
                         } else {
                             let len = content.len();
@@ -696,6 +729,30 @@ mod tests {
             Token::Comma,
             Token::Whitespace(" \n ".to_string()),
             Token::Number("274".to_string()),
+        ];
+        assert_eq!(tokens, expected);
+    }
+    #[test]
+    fn commented_tokens2() {
+        let tokens: Vec<_> = tokenize_str("! hi\nTEMPERATURES(1:2)=273.15, \n 274 ! hello")
+            .into_iter()
+            .map(|l_token| l_token.token().clone())
+            .collect();
+        let expected = vec![
+            Token::Comment("! hi\n".to_string()),
+            Token::Identifier("TEMPERATURES".to_string()),
+            Token::LeftBracket,
+            Token::Number("1".to_string()),
+            Token::Colon,
+            Token::Number("2".to_string()),
+            Token::RightBracket,
+            Token::Equals,
+            Token::Number("273.15".to_string()),
+            Token::Comma,
+            Token::Whitespace(" \n ".to_string()),
+            Token::Number("274".to_string()),
+            Token::Whitespace(" ".to_string()),
+            Token::Comment("! hello".to_string()),
         ];
         assert_eq!(tokens, expected);
     }

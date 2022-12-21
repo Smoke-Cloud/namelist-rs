@@ -12,6 +12,15 @@ pub struct Namelist {
                                    //     pub parameters: HashMap<String, ParameterValue>
 }
 
+impl Display for Namelist {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for token in &self.tokens {
+            write!(f, "{token}")?;
+        }
+        Ok(())
+    }
+}
+
 pub struct NmlParser<R: Read> {
     tokenizer: TokenIter<R>,
     state: ParserState,
@@ -50,8 +59,14 @@ impl<R: Read> Iterator for NmlParser<R> {
             match self.state {
                 ParserState::Start => {
                     if token.token == Token::Ampersand {
+                        let tokens = std::mem::take(&mut self.next_namelist);
                         self.next_namelist.push(token);
                         self.state = ParserState::InNamelist;
+                        if !tokens.is_empty() {
+                            break Some(tokens);
+                        }
+                    } else {
+                        self.next_namelist.push(token);
                     }
                 }
                 ParserState::InNamelist => {
@@ -75,7 +90,7 @@ impl<R: Read> Iterator for NmlParser<R> {
     }
 }
 
-use std::io::Read;
+use std::{fmt::Display, io::Read};
 
 use namelists::parse_namelist;
 use tokenizer::{LocatedToken, Token, TokenIter};
@@ -164,6 +179,7 @@ mod tests {
                 Token::Whitespace(" ".to_string()),
                 Token::RightSlash,
             ],
+            vec![Token::Whitespace("\n".to_string())],
             vec![
                 Token::Ampersand,
                 Token::Identifier("DUMP".to_string()),
@@ -181,13 +197,4 @@ mod tests {
         ];
         assert_eq!(nmls, expected);
     }
-
-    //     #[test]
-    //     fn nml_iter() {
-    //         let f = std::fs::File::open("room_fire.fds").expect("could not open test file");
-    //         let parser = NmlParser::new(f);
-    //         for nml in parser {
-    //             println!("NML: {:?}", nml);
-    //         }
-    //     }
 }

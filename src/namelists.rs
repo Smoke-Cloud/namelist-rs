@@ -5,9 +5,14 @@ use crate::{
 
 pub fn parse_namelist(tokens: Vec<LocatedToken>) -> Option<Namelist> {
     if tokens.get(0).map(|x| x.token()) != Some(&Token::Ampersand) {
-        return None;
+        if tokens.is_empty() {
+            None
+        } else {
+            Some(Namelist { tokens })
+        }
+    } else {
+        Some(Namelist { tokens })
     }
-    Some(Namelist { tokens })
 }
 
 // impl TryFrom<(String, Vec<Token>)> for Namelist {
