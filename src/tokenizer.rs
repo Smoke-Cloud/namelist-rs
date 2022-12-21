@@ -5,6 +5,7 @@ use std::{
 };
 use utf8::{self, BufReadDecoder};
 
+// TODO: Add line and column numbers
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Span {
     pub lo: usize,

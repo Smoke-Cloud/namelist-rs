@@ -10,8 +10,6 @@ pub struct NamelistFile {
 pub enum Namelist {
     Actual { tokens: Vec<LocatedToken> },
     Other { tokens: Vec<LocatedToken> },
-    // pub name: String,
-    //     pub parameters: HashMap<String, ParameterValue>
 }
 
 impl Namelist {
@@ -114,42 +112,8 @@ use tokenizer::{LocatedToken, Token, TokenIter};
 
 #[cfg(test)]
 mod tests {
-    use crate::tokenizer::Span;
-
     use super::*;
-
-    //     #[test]
-    //     fn boolean_examples() {
-    //         assert_eq!("t".parse(), Ok(NmlBool(true)));
-    //         assert_eq!("T".parse(), Ok(NmlBool(true)));
-    //         assert_eq!("f".parse(), Ok(NmlBool(false)));
-    //         assert_eq!("F".parse(), Ok(NmlBool(false)));
-    //         assert_eq!(".FALSE.".parse(), Ok(NmlBool(false)));
-    //         assert_eq!(".TRUE.".parse(), Ok(NmlBool(true)));
-    //     }
-
-    //     #[test]
-    //     fn int_examples() {
-    //         assert_eq!("-2".parse(), Ok(NmlInt(-2)));
-    //         assert_eq!("60".parse(), Ok(NmlInt(60)));
-    //     }
-
-    //     #[test]
-    //     fn double_examples() {
-    //         assert_eq!("1E13".parse(), Ok(NmlFloat(1e13)));
-    //         assert_eq!("2.75E12".parse(), Ok(NmlFloat(2.75e12)));
-    //     }
-
-    //     #[test]
-    //     fn string_examples() {
-    //         assert_eq!("\'hello\'".parse(), Ok(NmlString("hello".to_string())));
-    //     }
-
-    //     #[test]
-    //     fn float_check() {
-    //         assert_eq!("1.1".parse(), Ok(NmlFloat(1.1)));
-    //         assert_eq!("123E-02".parse(), Ok(NmlFloat(1.23)));
-    //     }
+    use crate::tokenizer::Span;
 
     #[test]
     fn single_nml() {
