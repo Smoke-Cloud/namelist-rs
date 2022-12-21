@@ -7,14 +7,31 @@ pub struct NamelistFile {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Namelist {
-    pub tokens: Vec<LocatedToken>, // pub name: String,
-                                   //     pub parameters: HashMap<String, ParameterValue>
+pub enum Namelist {
+    Actual { tokens: Vec<LocatedToken> },
+    Other { tokens: Vec<LocatedToken> },
+    // pub name: String,
+    //     pub parameters: HashMap<String, ParameterValue>
+}
+
+impl Namelist {
+    pub fn tokens(&self) -> &[LocatedToken] {
+        match self {
+            Self::Actual { tokens } => tokens,
+            Self::Other { tokens } => tokens,
+        }
+    }
+    pub fn into_tokens(self) -> Vec<LocatedToken> {
+        match self {
+            Self::Actual { tokens } => tokens,
+            Self::Other { tokens } => tokens,
+        }
+    }
 }
 
 impl Display for Namelist {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for token in &self.tokens {
+        for token in self.tokens() {
             write!(f, "{token}")?;
         }
         Ok(())
@@ -138,7 +155,7 @@ mod tests {
         let parser = NmlParser::new(std::io::Cursor::new(input));
         let nmls: Vec<Vec<Token>> = parser
             .map(|nml| {
-                let tokens: Vec<Token> = nml.tokens.into_iter().map(|x| x.token).collect();
+                let tokens: Vec<Token> = nml.into_tokens().into_iter().map(|x| x.token).collect();
                 tokens
             })
             .collect();
@@ -156,13 +173,14 @@ mod tests {
         ]];
         assert_eq!(nmls, expected);
     }
+
     #[test]
     fn two_nmls() {
         let input = "&Head val = 2 /\n&DUMP x=2,3,4 /";
         let parser = NmlParser::new(std::io::Cursor::new(input));
         let nmls: Vec<Vec<Token>> = parser
             .map(|nml| {
-                let tokens: Vec<Token> = nml.tokens.into_iter().map(|x| x.token).collect();
+                let tokens: Vec<Token> = nml.into_tokens().into_iter().map(|x| x.token).collect();
                 tokens
             })
             .collect();

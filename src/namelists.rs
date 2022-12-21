@@ -8,10 +8,10 @@ pub fn parse_namelist(tokens: Vec<LocatedToken>) -> Option<Namelist> {
         if tokens.is_empty() {
             None
         } else {
-            Some(Namelist { tokens })
+            Some(Namelist::Other { tokens })
         }
     } else {
-        Some(Namelist { tokens })
+        Some(Namelist::Actual { tokens })
     }
 }
 
