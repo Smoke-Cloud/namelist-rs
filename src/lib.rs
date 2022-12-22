@@ -1,12 +1,12 @@
 pub mod namelists;
 pub mod tokenizer;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NamelistFile {
     pub namelists: Vec<Namelist>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Namelist {
     Actual { tokens: Vec<LocatedToken> },
     Other { tokens: Vec<LocatedToken> },
@@ -190,7 +190,7 @@ mod tests {
                 Token::Whitespace(" ".to_string()),
                 Token::RightSlash,
             ],
-            vec![Token::Whitespace("\n".to_string())],
+            vec![Token::Comment("\n".to_string())],
             vec![
                 Token::Ampersand,
                 Token::Identifier("DUMP".to_string()),
