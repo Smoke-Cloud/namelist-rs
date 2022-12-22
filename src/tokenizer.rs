@@ -199,7 +199,6 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                     self.state = TokenizerState::InQuote { start, content };
                                 }
                                 '.' => {
-                                    eprintln!("found '.'");
                                     let start = i;
                                     let mut content = String::new();
                                     content.push(c);
@@ -314,7 +313,6 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                         } else {
                             match c {
                                 'T' | 't' | 'F' | 'f' => {
-                                    eprintln!("found {c:?} in bool or number");
                                     content.push(c);
                                     let value = std::mem::take(content);
                                     self.state = TokenizerState::InBool {
@@ -323,12 +321,7 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                     };
                                 }
                                 _ => {
-                                    eprintln!("found {c:?} in bool or number");
                                     content.push(c);
-                                    // for c in self.iter {
-                                    //     let (i,c) = c.unwrap();
-                                    //     print!("{c}");
-                                    // }
                                     panic!("{:?} is an invalid bool or number", content);
                                 }
                             }
@@ -336,7 +329,6 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                     }
                     TokenizerState::InBool { start, content } => match c {
                         '.' => {
-                            eprintln!("found {c:?} in bool");
                             content.push(c);
                             let len = content.len();
                             let value = std::mem::take(content);
@@ -348,7 +340,6 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                             break Some(Ok(token));
                         }
                         _ => {
-                            eprintln!("found {c:?} in bool");
                             content.push(c);
                         }
                     },
@@ -447,7 +438,13 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                         }
                     }
                     TokenizerState::InNumber { start, content } => {
-                        if c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '-'  || c == '+'{
+                        if c.is_ascii_digit()
+                            || c == '.'
+                            || c == 'e'
+                            || c == 'E'
+                            || c == '-'
+                            || c == '+'
+                        {
                             content.push(c);
                         } else {
                             let len = content.len();
@@ -479,7 +476,6 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                         self.state =
                                             TokenizerState::InIdentifier { start, content };
                                     } else if c.is_whitespace() {
-                                        eprintln!("{c:?} is whitespace in number");
                                         let start = i;
                                         let mut content = String::new();
                                         content.push(c);
