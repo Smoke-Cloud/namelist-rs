@@ -25,6 +25,21 @@ impl Namelist {
             Self::Other { tokens } => tokens,
         }
     }
+    pub fn append_token(&mut self, token: Token) {
+        let located = LocatedToken {
+            span: Span { lo: 0, len: 0 },
+            token,
+        };
+        let tokens = match self {
+            Self::Actual { tokens } => tokens,
+            Self::Other { tokens } => tokens,
+        };
+        if tokens.last().map(|l| &l.token) == Some(&Token::RightSlash) {
+            tokens.insert(tokens.len() - 1, located);
+        } else {
+            tokens.push(located);
+        }
+    }
 }
 
 impl Display for Namelist {
@@ -108,7 +123,7 @@ impl<R: Read> Iterator for NmlParser<R> {
 use std::{fmt::Display, io::Read};
 
 use namelists::parse_namelist;
-use tokenizer::{LocatedToken, Token, TokenIter};
+use tokenizer::{LocatedToken, Span, Token, TokenIter};
 
 #[cfg(test)]
 mod tests {
@@ -157,6 +172,64 @@ mod tests {
                 LocatedToken {
                     token: Token::Whitespace(" ".to_string()),
                     span: Span { lo: 13, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::RightSlash,
+                    span: Span { lo: 14, len: 1 },
+                },
+            ],
+        }];
+        assert_eq!(nmls, expected);
+    }
+    #[test]
+    fn single_nml_append() {
+        let input = "&Head val = 2 /";
+        let parser = NmlParser::new(std::io::Cursor::new(input));
+        let mut nmls: Vec<Namelist> = parser.collect();
+        if let Some(nml) = nmls.last_mut() {
+            nml.append_token(Token::Identifier("hello".to_string()))
+        }
+        let expected = vec![Namelist::Actual {
+            tokens: vec![
+                LocatedToken {
+                    token: Token::Ampersand,
+                    span: Span { lo: 0, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Identifier("Head".to_string()),
+                    span: Span { lo: 1, len: 4 },
+                },
+                LocatedToken {
+                    token: Token::Whitespace(" ".to_string()),
+                    span: Span { lo: 5, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Identifier("val".to_string()),
+                    span: Span { lo: 6, len: 3 },
+                },
+                LocatedToken {
+                    token: Token::Whitespace(" ".to_string()),
+                    span: Span { lo: 9, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Equals,
+                    span: Span { lo: 10, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Whitespace(" ".to_string()),
+                    span: Span { lo: 11, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Number("2".to_string()),
+                    span: Span { lo: 12, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Whitespace(" ".to_string()),
+                    span: Span { lo: 13, len: 1 },
+                },
+                LocatedToken {
+                    token: Token::Identifier("hello".to_string()),
+                    span: Span { lo: 0, len: 0 },
                 },
                 LocatedToken {
                     token: Token::RightSlash,
