@@ -447,7 +447,7 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                         }
                     }
                     TokenizerState::InNumber { start, content } => {
-                        if c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '-' {
+                        if c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '-'  || c == '+'{
                             content.push(c);
                         } else {
                             let len = content.len();
