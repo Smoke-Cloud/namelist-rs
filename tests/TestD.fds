@@ -1,4 +1,5 @@
 
+Compute flowrate weighted average and convert to kg/m^2.
 &HEAD CHID='0018_MHighA_R3' / ! test
 ! &VENT MB='XMIN' SURF_ID='OPEN' /
 ! &VENT MB='XMAX' SURF_ID='OPEN' /
