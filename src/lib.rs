@@ -64,6 +64,7 @@ impl<R: Read> Iterator for NmlParser<R> {
     fn next(&mut self) -> Option<Self::Item> {
         let tokens = loop {
             let token = if let Some(token) = self.tokenizer.next().map(|x| x.unwrap()) {
+                eprintln!("emitted token {token:?}");
                 token
             } else if !self.next_namelist.is_empty() {
                 let tokens = std::mem::take(&mut self.next_namelist);

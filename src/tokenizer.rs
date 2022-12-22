@@ -80,6 +80,7 @@ pub enum TokenizerState {
     StartInNamelist,
     InQuote { start: usize, content: String },
     InIdentifier { start: usize, content: String },
+    InBoolOrNumber { start: usize, content: String },
     InNumber { start: usize, content: String },
     InBool { start: usize, content: String },
     InWhitespace { start: usize, content: String },
@@ -198,10 +199,11 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                     self.state = TokenizerState::InQuote { start, content };
                                 }
                                 '.' => {
+                                    eprintln!("found '.'");
                                     let start = i;
                                     let mut content = String::new();
                                     content.push(c);
-                                    self.state = TokenizerState::InBool { start, content };
+                                    self.state = TokenizerState::InBoolOrNumber { start, content };
                                 }
                                 '!' => {
                                     let start = i;
@@ -301,8 +303,40 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                             content.push(c);
                         }
                     },
+                    TokenizerState::InBoolOrNumber { start, content } => {
+                        if c.is_ascii_digit() {
+                            content.push(c);
+                            let value = std::mem::take(content);
+                            self.state = TokenizerState::InNumber {
+                                start: *start,
+                                content: value,
+                            };
+                        } else {
+                            match c {
+                                'T' | 't' | 'F' | 'f' => {
+                                    eprintln!("found {c:?} in bool or number");
+                                    content.push(c);
+                                    let value = std::mem::take(content);
+                                    self.state = TokenizerState::InBool {
+                                        start: *start,
+                                        content: value,
+                                    };
+                                }
+                                _ => {
+                                    eprintln!("found {c:?} in bool or number");
+                                    content.push(c);
+                                    // for c in self.iter {
+                                    //     let (i,c) = c.unwrap();
+                                    //     print!("{c}");
+                                    // }
+                                    panic!("{:?} is an invalid bool or number", content);
+                                }
+                            }
+                        }
+                    }
                     TokenizerState::InBool { start, content } => match c {
                         '.' => {
+                            eprintln!("found {c:?} in bool");
                             content.push(c);
                             let len = content.len();
                             let value = std::mem::take(content);
@@ -314,12 +348,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                             break Some(Ok(token));
                         }
                         _ => {
+                            eprintln!("found {c:?} in bool");
                             content.push(c);
                         }
                     },
                     TokenizerState::Comment { start, content } => match c {
                         '\n' => {
-                            eprintln!("found \\n when comment was: {content}");
                             // If we come to a new line while processing
                             // comments, we revert to start. Even an ampersand
                             // does not break us out of a comment.
@@ -334,7 +368,6 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                             break Some(Ok(token));
                         }
                         _ => {
-                            eprintln!("found {c:?} when comment was: {content:?}");
                             content.push(c);
                         }
                     },
@@ -372,8 +405,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                         content.push(c);
                                         self.state =
                                             TokenizerState::InWhitespace { start, content };
+                                    } else if c == '.' {
+                                        let mut content = String::new();
+                                        content.push(c);
+                                        self.state =
+                                            TokenizerState::InBoolOrNumber { start: i, content };
                                     } else if c.is_ascii_digit()
-                                        || c == '.'
                                         || c == 'e'
                                         || c == 'E'
                                         || c == '-'
@@ -410,7 +447,7 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                         }
                     }
                     TokenizerState::InNumber { start, content } => {
-                        if c.is_ascii_digit() || c == '.' || c == 'e' || c == '-' {
+                        if c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '-' {
                             content.push(c);
                         } else {
                             let len = content.len();
@@ -431,7 +468,6 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                     self.state = TokenizerState::StartInNamelist;
                                 }
                                 '/' => {
-                                    eprintln!("hit {c:?} in number");
                                     self.buf.replace((i, c));
                                     self.state = TokenizerState::Start;
                                 }
@@ -443,6 +479,7 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                         self.state =
                                             TokenizerState::InIdentifier { start, content };
                                     } else if c.is_whitespace() {
+                                        eprintln!("{c:?} is whitespace in number");
                                         let start = i;
                                         let mut content = String::new();
                                         content.push(c);
@@ -468,6 +505,9 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                     }
                     TokenizerState::InBool { .. } => {
                         panic!("Unfinished bool")
+                    }
+                    TokenizerState::InBoolOrNumber { .. } => {
+                        panic!("Unfinished bool or number")
                     }
                     TokenizerState::InWhitespace { start, content } => {
                         let len = content.len();
@@ -670,6 +710,136 @@ mod tests {
                 },
                 LocatedToken {
                     span: Span { lo: 6, len: 1 },
+                    token: Token::RightSlash,
+                },
+            ],
+            tokens
+        );
+    }
+
+    #[test]
+    fn trivial_tokens5() {
+        let s = "&abc=.2/";
+        let tokens = tokenize_str(s);
+        assert_eq!(
+            vec![
+                LocatedToken {
+                    span: Span { lo: 0, len: 1 },
+                    token: Token::Ampersand,
+                },
+                LocatedToken {
+                    span: Span { lo: 1, len: 3 },
+                    token: Token::Identifier("abc".to_string()),
+                },
+                LocatedToken {
+                    span: Span { lo: 4, len: 1 },
+                    token: Token::Equals,
+                },
+                LocatedToken {
+                    span: Span { lo: 5, len: 2 },
+                    token: Token::Number(".2".to_string()),
+                },
+                LocatedToken {
+                    span: Span { lo: 7, len: 1 },
+                    token: Token::RightSlash,
+                },
+            ],
+            tokens
+        );
+    }
+
+    #[test]
+    fn trivial_tokens6() {
+        let s = "&abc=2./";
+        let tokens = tokenize_str(s);
+        assert_eq!(
+            vec![
+                LocatedToken {
+                    span: Span { lo: 0, len: 1 },
+                    token: Token::Ampersand,
+                },
+                LocatedToken {
+                    span: Span { lo: 1, len: 3 },
+                    token: Token::Identifier("abc".to_string()),
+                },
+                LocatedToken {
+                    span: Span { lo: 4, len: 1 },
+                    token: Token::Equals,
+                },
+                LocatedToken {
+                    span: Span { lo: 5, len: 2 },
+                    token: Token::Number("2.".to_string()),
+                },
+                LocatedToken {
+                    span: Span { lo: 7, len: 1 },
+                    token: Token::RightSlash,
+                },
+            ],
+            tokens
+        );
+    }
+    #[test]
+    fn trivial_tokens7() {
+        let s = "&abc=2.\n/";
+        let tokens = tokenize_str(s);
+        assert_eq!(
+            vec![
+                LocatedToken {
+                    span: Span { lo: 0, len: 1 },
+                    token: Token::Ampersand,
+                },
+                LocatedToken {
+                    span: Span { lo: 1, len: 3 },
+                    token: Token::Identifier("abc".to_string()),
+                },
+                LocatedToken {
+                    span: Span { lo: 4, len: 1 },
+                    token: Token::Equals,
+                },
+                LocatedToken {
+                    span: Span { lo: 5, len: 2 },
+                    token: Token::Number("2.".to_string()),
+                },
+                LocatedToken {
+                    span: Span { lo: 7, len: 1 },
+                    token: Token::Whitespace("\n".to_string()),
+                },
+                LocatedToken {
+                    span: Span { lo: 8, len: 1 },
+                    token: Token::RightSlash,
+                },
+            ],
+            tokens
+        );
+    }
+    #[test]
+    fn trivial_tokens8() {
+        let s = "&abc=2.\r\n/";
+        let tokens = tokenize_str(s);
+        assert_eq!(
+            vec![
+                LocatedToken {
+                    span: Span { lo: 0, len: 1 },
+                    token: Token::Ampersand,
+                },
+                LocatedToken {
+                    span: Span { lo: 1, len: 3 },
+                    token: Token::Identifier("abc".to_string()),
+                },
+                LocatedToken {
+                    span: Span { lo: 4, len: 1 },
+                    token: Token::Equals,
+                },
+                LocatedToken {
+                    span: Span { lo: 5, len: 2 },
+                    token: Token::Number("2.".to_string()),
+                },
+                LocatedToken {
+                    span: Span { lo: 7, len: 2 },
+                    token: Token::Whitespace("\r\n".to_string()),
+                },
+                LocatedToken {
+                    span: Span { lo: 9, len: 1 },
                     token: Token::RightSlash,
                 },
             ],
