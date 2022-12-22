@@ -1,5 +1,6 @@
 
 Compute flowrate weighted average and convert to kg/m^2.
+Using default value of extinction coefficient, 45.6 % at T_END.
 &HEAD CHID='0018_MHighA_R3' / ! test
 ! &VENT MB='XMIN' SURF_ID='OPEN' /
 ! &VENT MB='XMAX' SURF_ID='OPEN' /

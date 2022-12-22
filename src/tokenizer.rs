@@ -349,7 +349,10 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                         content.push(c);
                                         self.state = TokenizerState::InComment { start, content };
                                     } else {
-                                        panic!("{} is an invalid character", c)
+                                        let start = i;
+                                        let mut content = String::new();
+                                        content.push(c);
+                                        self.state = TokenizerState::InComment { start, content };
                                     }
                                 }
                             }
