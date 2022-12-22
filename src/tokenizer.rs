@@ -46,6 +46,7 @@ pub enum Token {
     /// Some variable string that forms a token. Currently this could also
     /// include numbers.
     QuotedStr(String),
+    Bool(String),
     Whitespace(String),
     Identifier(String),
     Number(String),
@@ -63,6 +64,7 @@ impl Display for Token {
             Self::RightSlash => write!(f, "/"),
             Self::Ampersand => write!(f, "&"),
             Self::NewLine => writeln!(f),
+            Self::Bool(s) => write!(f, "{s}"),
             Self::QuotedStr(s) => write!(f, "{s}"),
             Self::Whitespace(s) => write!(f, "{s}"),
             Self::Identifier(s) => write!(f, "{s}"),
@@ -78,6 +80,7 @@ pub enum TokenizerState {
     InQuote { start: usize, content: String },
     InIdentifier { start: usize, content: String },
     InNumber { start: usize, content: String },
+    InBool { start: usize, content: String },
     InWhitespace { start: usize, content: String },
     InComment { start: usize, content: String },
 }
@@ -159,6 +162,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                     let mut content = String::new();
                                     content.push(c);
                                     self.state = TokenizerState::InQuote { start, content };
+                                }
+                                '.' => {
+                                    let start = i;
+                                    let mut content = String::new();
+                                    content.push(c);
+                                    self.state = TokenizerState::InBool { start, content };
                                 }
                                 '!' => {
                                     let start = i;
@@ -247,6 +256,22 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                             let token = LocatedToken {
                                 span: Span { lo: *start, len },
                                 token: Token::QuotedStr(value),
+                            };
+                            self.state = TokenizerState::Start;
+                            break Some(Ok(token));
+                        }
+                        _ => {
+                            content.push(c);
+                        }
+                    },
+                    TokenizerState::InBool { start, content } => match c {
+                        '.' => {
+                            content.push(c);
+                            let len = content.len();
+                            let value = std::mem::take(content);
+                            let token = LocatedToken {
+                                span: Span { lo: *start, len },
+                                token: Token::Bool(value),
                             };
                             self.state = TokenizerState::Start;
                             break Some(Ok(token));
@@ -392,6 +417,9 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                     }
                     TokenizerState::InQuote { .. } => {
                         panic!("Unclosed quoted string")
+                    }
+                    TokenizerState::InBool { .. } => {
+                        panic!("Unfinished bool")
                     }
                     TokenizerState::InWhitespace { start, content } => {
                         let len = content.len();
