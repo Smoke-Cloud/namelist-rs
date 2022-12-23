@@ -838,7 +838,7 @@ impl std::fmt::Display for NmlParseError {
                 write!(f, "no ampersand at the beginning of namelist")
             }
             Self::NoEquals(_) => {
-                write!(f, "no equals succeeding tthe parameter name")
+                write!(f, "no equals succeeding the parameter name")
             }
             Self::NoTokens => {
                 write!(f, "namelist ended early with insufficient tokens")

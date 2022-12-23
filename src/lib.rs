@@ -367,6 +367,44 @@ mod tests {
     }
 
     #[test]
+    fn location1() {
+        let input = "&Head val(1:3)= 1,2,3 /";
+        let parser = NmlParser::new(std::io::Cursor::new(input));
+        let mut nmls = parser
+            .collect::<Result<Vec<Namelist>, _>>()
+            .expect("test parse failed");
+        if let Some(nml) = nmls.last_mut() {
+            nml.append_token(Token::Identifier("hello".to_string()))
+        }
+        let nmls: Vec<Vec<Token>> = nmls
+            .into_iter()
+            .map(|x| x.tokens().iter().map(|x| x.token.clone()).collect())
+            .collect();
+        let expected = vec![vec![
+            Token::Ampersand,
+            Token::Identifier("Head".to_string()),
+            Token::Whitespace(" ".to_string()),
+            Token::Identifier("val".to_string()),
+            Token::LeftBracket,
+            Token::Number("1".to_string()),
+            Token::Colon,
+            Token::Number("3".to_string()),
+            Token::RightBracket,
+            Token::Equals,
+            Token::Whitespace(" ".to_string()),
+            Token::Number("1".to_string()),
+            Token::Comma,
+            Token::Number("2".to_string()),
+            Token::Comma,
+            Token::Number("3".to_string()),
+            Token::Whitespace(" ".to_string()),
+            Token::Identifier("hello".to_string()),
+            Token::RightSlash,
+        ]];
+        assert_eq!(nmls, expected);
+    }
+
+    #[test]
     fn two_nmls() {
         let input = "&Head val = 2 /\n&DUMP x=2,3,4 /";
         let parser = NmlParser::new(std::io::Cursor::new(input));
