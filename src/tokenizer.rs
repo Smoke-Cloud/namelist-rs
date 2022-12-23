@@ -10,11 +10,14 @@ use utf8::{self, BufReadDecoder};
 pub struct Span {
     pub lo: usize,
     pub len: usize,
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LocatedToken {
-    pub span: Span,
+    /// Location of the token in the original file or stream.
+    pub span: Option<Span>,
     pub token: Token,
 }
 
@@ -22,7 +25,7 @@ impl LocatedToken {
     pub fn token(&self) -> &Token {
         &self.token
     }
-    pub fn span(&self) -> Span {
+    pub fn span(&self) -> Option<Span> {
         self.span
     }
 }
@@ -129,6 +132,8 @@ pub struct TokenIter<B: std::io::Read> {
     iter: CharDecoder<std::io::BufReader<B>>,
     buf: Option<(usize, char)>,
     state: TokenizerState,
+    line: usize,
+    column: usize,
 }
 
 impl<R: std::io::Read> TokenIter<R> {
@@ -137,6 +142,38 @@ impl<R: std::io::Read> TokenIter<R> {
             iter: CharDecoder::new(std::io::BufReader::new(input)),
             buf: None,
             state: TokenizerState::Start,
+            line: 0,
+            column: 0,
+        }
+    }
+    fn pos_advance_token(&mut self, token: &Token) {
+        match token {
+            Token::LeftBracket => self.pos_advance('('),
+            Token::RightBracket => self.pos_advance(')'),
+            Token::Equals => self.pos_advance('='),
+            Token::Colon => self.pos_advance(':'),
+            Token::Comma => self.pos_advance(','),
+            Token::RightSlash => self.pos_advance('/'),
+            Token::Ampersand => self.pos_advance('&'),
+            Token::NewLine => self.pos_advance('\n'),
+            Token::QuotedStr(s)
+            | Token::Bool(s)
+            | Token::Whitespace(s)
+            | Token::Identifier(s)
+            | Token::Number(s)
+            | Token::Comment(s) => {
+                for c in s.chars() {
+                    self.pos_advance(c);
+                }
+            }
+        }
+    }
+    fn pos_advance(&mut self, c: char) {
+        if c == '\n' {
+            self.column = 0;
+            self.line += 1;
+        } else {
+            self.column += 1
         }
     }
 }
@@ -144,26 +181,38 @@ impl<R: std::io::Read> TokenIter<R> {
 impl<R: std::io::Read> Iterator for TokenIter<R> {
     type Item = Result<LocatedToken, ()>;
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
+        let token = loop {
             if let Some((i, c)) = self
                 .buf
                 .take()
                 .or_else(|| self.iter.next().map(|x| x.unwrap()))
             {
+                let line = self.line;
+                let column = self.column;
                 match &mut self.state {
                     TokenizerState::Start => {
                         if c == '&' {
                             // If a new line starts with an ampersand we should
                             // interpret what follows as a namelist.
                             let token = Token::Ampersand;
-                            let span = Span { lo: i, len: 1 };
+                            let span = Some(Span {
+                                lo: i,
+                                len: 1,
+                                column,
+                                line,
+                            });
                             let token = LocatedToken { span, token };
                             self.state = TokenizerState::StartInNamelist;
                             break Some(Ok(token));
                         } else if c == '/' {
                             let len = 1;
                             let token = LocatedToken {
-                                span: Span { lo: i, len },
+                                span: Some(Span {
+                                    lo: i,
+                                    len,
+                                    column,
+                                    line,
+                                }),
                                 token: Token::RightSlash,
                             };
                             self.state = TokenizerState::Start;
@@ -171,7 +220,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                         } else if c == '\n' {
                             let len = 1;
                             let token = LocatedToken {
-                                span: Span { lo: i, len },
+                                span: Some(Span {
+                                    lo: i,
+                                    len,
+                                    column,
+                                    line,
+                                }),
                                 token: Token::Comment(c.to_string()),
                             };
                             self.state = TokenizerState::Start;
@@ -212,49 +266,84 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                                 }
                                 '=' => {
                                     let token = Token::Equals;
-                                    let span = Span { lo: i, len: 1 };
+                                    let span = Some(Span {
+                                        lo: i,
+                                        len: 1,
+                                        column,
+                                        line,
+                                    });
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::StartInNamelist;
                                     break Some(Ok(token));
                                 }
                                 '(' => {
                                     let token = Token::LeftBracket;
-                                    let span = Span { lo: i, len: 1 };
+                                    let span = Some(Span {
+                                        lo: i,
+                                        len: 1,
+                                        column,
+                                        line,
+                                    });
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::StartInNamelist;
                                     break Some(Ok(token));
                                 }
                                 ')' => {
                                     let token = Token::RightBracket;
-                                    let span = Span { lo: i, len: 1 };
+                                    let span = Some(Span {
+                                        lo: i,
+                                        len: 1,
+                                        column,
+                                        line,
+                                    });
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::StartInNamelist;
                                     break Some(Ok(token));
                                 }
                                 ':' => {
                                     let token = Token::Colon;
-                                    let span = Span { lo: i, len: 1 };
+                                    let span = Some(Span {
+                                        lo: i,
+                                        len: 1,
+                                        column,
+                                        line,
+                                    });
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::StartInNamelist;
                                     break Some(Ok(token));
                                 }
                                 ',' => {
                                     let token = Token::Comma;
-                                    let span = Span { lo: i, len: 1 };
+                                    let span = Some(Span {
+                                        lo: i,
+                                        len: 1,
+                                        column,
+                                        line,
+                                    });
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::StartInNamelist;
                                     break Some(Ok(token));
                                 }
                                 '/' => {
                                     let token = Token::RightSlash;
-                                    let span = Span { lo: i, len: 1 };
+                                    let span = Some(Span {
+                                        lo: i,
+                                        len: 1,
+                                        column,
+                                        line,
+                                    });
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::Start;
                                     break Some(Ok(token));
                                 }
                                 '&' => {
                                     let token = Token::Ampersand;
-                                    let span = Span { lo: i, len: 1 };
+                                    let span = Some(Span {
+                                        lo: i,
+                                        len: 1,
+                                        column,
+                                        line,
+                                    });
                                     let token = LocatedToken { span, token };
                                     self.state = TokenizerState::StartInNamelist;
                                     break Some(Ok(token));
@@ -292,7 +381,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                             let len = content.len();
                             let value = std::mem::take(content);
                             let token = LocatedToken {
-                                span: Span { lo: *start, len },
+                                span: Some(Span {
+                                    lo: *start,
+                                    len,
+                                    column,
+                                    line,
+                                }),
                                 token: Token::QuotedStr(value),
                             };
                             self.state = TokenizerState::StartInNamelist;
@@ -333,7 +427,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                             let len = content.len();
                             let value = std::mem::take(content);
                             let token = LocatedToken {
-                                span: Span { lo: *start, len },
+                                span: Some(Span {
+                                    lo: *start,
+                                    len,
+                                    column,
+                                    line,
+                                }),
                                 token: Token::Bool(value),
                             };
                             self.state = TokenizerState::StartInNamelist;
@@ -352,7 +451,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                             let len = content.len();
                             let value = std::mem::take(content);
                             let token = LocatedToken {
-                                span: Span { lo: *start, len },
+                                span: Some(Span {
+                                    lo: *start,
+                                    len,
+                                    column,
+                                    line,
+                                }),
                                 token: Token::Comment(value),
                             };
                             self.state = TokenizerState::Start;
@@ -369,7 +473,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                             let len = content.len();
                             let value = std::mem::take(content);
                             let token = LocatedToken {
-                                span: Span { lo: *start, len },
+                                span: Some(Span {
+                                    lo: *start,
+                                    len,
+                                    column,
+                                    line,
+                                }),
                                 token: Token::Whitespace(value),
                             };
                             match c {
@@ -429,7 +538,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                         } else {
                             let len = content.len();
                             let value = std::mem::take(content);
-                            let span = Span { lo: *start, len };
+                            let span = Some(Span {
+                                lo: *start,
+                                len,
+                                column,
+                                line,
+                            });
                             let token = Token::Identifier(value);
                             self.buf.replace((i, c));
                             self.state = TokenizerState::StartInNamelist;
@@ -450,7 +564,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                             let len = content.len();
                             let value = std::mem::take(content);
                             let token = LocatedToken {
-                                span: Span { lo: *start, len },
+                                span: Some(Span {
+                                    lo: *start,
+                                    len,
+                                    column,
+                                    line,
+                                }),
                                 token: Token::Number(value),
                             };
                             match c {
@@ -491,6 +610,8 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                     }
                 }
             } else {
+                let line = self.line;
+                let column = self.column;
                 // We have reached EOF
                 match &mut self.state {
                     TokenizerState::Start | TokenizerState::StartInNamelist => {
@@ -509,7 +630,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                         let len = content.len();
                         let value = std::mem::take(content);
                         let token = Token::Whitespace(value);
-                        let span = Span { lo: *start, len };
+                        let span = Some(Span {
+                            lo: *start,
+                            len,
+                            column,
+                            line,
+                        });
                         self.state = TokenizerState::StartInNamelist;
                         let token = LocatedToken { span, token };
                         break Some(Ok(token));
@@ -518,7 +644,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                         let len = content.len();
                         let value = std::mem::take(content);
                         let token = Token::Comment(value);
-                        let span = Span { lo: *start, len };
+                        let span = Some(Span {
+                            lo: *start,
+                            len,
+                            column,
+                            line,
+                        });
                         self.state = TokenizerState::Start;
                         let token = LocatedToken { span, token };
                         break Some(Ok(token));
@@ -527,7 +658,12 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                         let len = content.len();
                         let value = std::mem::take(content);
                         let token = Token::Identifier(value);
-                        let span = Span { lo: *start, len };
+                        let span = Some(Span {
+                            lo: *start,
+                            len,
+                            column,
+                            line,
+                        });
                         self.state = TokenizerState::StartInNamelist;
                         let token = LocatedToken { span, token };
                         break Some(Ok(token));
@@ -536,14 +672,24 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                         let len = content.len();
                         let value = std::mem::take(content);
                         let token = Token::Number(value);
-                        let span = Span { lo: *start, len };
+                        let span = Some(Span {
+                            lo: *start,
+                            len,
+                            column,
+                            line,
+                        });
                         self.state = TokenizerState::StartInNamelist;
                         let token = LocatedToken { span, token };
                         break Some(Ok(token));
                     }
                 }
             }
+        };
+        eprintln!("line: {} column: {}", self.line, self.column);
+        if let Some(Ok(ref token)) = token {
+            self.pos_advance_token(&token.token);
         }
+        token
     }
 }
 
@@ -568,7 +714,12 @@ mod tests {
         let tokens = tokenize_str(s);
         assert_eq!(
             vec![LocatedToken {
-                span: Span { lo: 0, len: 5 },
+                span: Some(Span {
+                    lo: 0,
+                    len: 5,
+                    column: 0,
+                    line: 0
+                }),
                 token: Token::Comment("abc=2".to_string()),
             },],
             tokens
@@ -578,33 +729,15 @@ mod tests {
     #[test]
     fn trivial_tokens1() {
         let s = "&H abc=2";
-        let tokens = tokenize_str(s);
+        let tokens: Vec<_> = tokenize_str(s).into_iter().map(|x| x.token).collect();
         assert_eq!(
             vec![
-                LocatedToken {
-                    span: Span { lo: 0, len: 1 },
-                    token: Token::Ampersand,
-                },
-                LocatedToken {
-                    span: Span { lo: 1, len: 1 },
-                    token: Token::Identifier("H".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 2, len: 1 },
-                    token: Token::Whitespace(" ".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 3, len: 3 },
-                    token: Token::Identifier("abc".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 6, len: 1 },
-                    token: Token::Equals,
-                },
-                LocatedToken {
-                    span: Span { lo: 7, len: 1 },
-                    token: Token::Number("2".to_string()),
-                }
+                Token::Ampersand,
+                Token::Identifier("H".to_string()),
+                Token::Whitespace(" ".to_string()),
+                Token::Identifier("abc".to_string()),
+                Token::Equals,
+                Token::Number("2".to_string()),
             ],
             tokens
         );
@@ -613,37 +746,16 @@ mod tests {
     #[test]
     fn trivial_tokens2() {
         let s = "&H abc= 2";
-        let tokens = tokenize_str(s);
+        let tokens: Vec<_> = tokenize_str(s).into_iter().map(|x| x.token).collect();
         assert_eq!(
             vec![
-                LocatedToken {
-                    span: Span { lo: 0, len: 1 },
-                    token: Token::Ampersand,
-                },
-                LocatedToken {
-                    span: Span { lo: 1, len: 1 },
-                    token: Token::Identifier("H".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 2, len: 1 },
-                    token: Token::Whitespace(" ".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 3, len: 3 },
-                    token: Token::Identifier("abc".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 6, len: 1 },
-                    token: Token::Equals,
-                },
-                LocatedToken {
-                    span: Span { lo: 7, len: 1 },
-                    token: Token::Whitespace(" ".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 8, len: 1 },
-                    token: Token::Number("2".to_string()),
-                }
+                Token::Ampersand,
+                Token::Identifier("H".to_string()),
+                Token::Whitespace(" ".to_string()),
+                Token::Identifier("abc".to_string()),
+                Token::Equals,
+                Token::Whitespace(" ".to_string()),
+                Token::Number("2".to_string()),
             ],
             tokens
         );
@@ -652,32 +764,17 @@ mod tests {
     #[test]
     fn trivial_tokens3() {
         assert_eq!(
-            tokenize_str("&H )=2"),
+            tokenize_str("&H )=2")
+                .into_iter()
+                .map(|x| x.token)
+                .collect::<Vec<_>>(),
             vec![
-                LocatedToken {
-                    span: Span { lo: 0, len: 1 },
-                    token: Token::Ampersand,
-                },
-                LocatedToken {
-                    span: Span { lo: 1, len: 1 },
-                    token: Token::Identifier("H".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 2, len: 1 },
-                    token: Token::Whitespace(" ".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 3, len: 1 },
-                    token: Token::RightBracket
-                },
-                LocatedToken {
-                    span: Span { lo: 4, len: 1 },
-                    token: Token::Equals
-                },
-                LocatedToken {
-                    span: Span { lo: 5, len: 1 },
-                    token: Token::Number("2".to_string())
-                },
+                Token::Ampersand,
+                Token::Identifier("H".to_string()),
+                Token::Whitespace(" ".to_string()),
+                Token::RightBracket,
+                Token::Equals,
+                Token::Number("2".to_string()),
             ]
         );
     }
@@ -685,29 +782,14 @@ mod tests {
     #[test]
     fn trivial_tokens4() {
         let s = "&abc=2/";
-        let tokens = tokenize_str(s);
+        let tokens: Vec<_> = tokenize_str(s).into_iter().map(|x| x.token).collect();
         assert_eq!(
             vec![
-                LocatedToken {
-                    span: Span { lo: 0, len: 1 },
-                    token: Token::Ampersand,
-                },
-                LocatedToken {
-                    span: Span { lo: 1, len: 3 },
-                    token: Token::Identifier("abc".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 4, len: 1 },
-                    token: Token::Equals,
-                },
-                LocatedToken {
-                    span: Span { lo: 5, len: 1 },
-                    token: Token::Number("2".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 6, len: 1 },
-                    token: Token::RightSlash,
-                },
+                Token::Ampersand,
+                Token::Identifier("abc".to_string()),
+                Token::Equals,
+                Token::Number("2".to_string()),
+                Token::RightSlash,
             ],
             tokens
         );
@@ -716,29 +798,14 @@ mod tests {
     #[test]
     fn trivial_tokens5() {
         let s = "&abc=.2/";
-        let tokens = tokenize_str(s);
+        let tokens: Vec<_> = tokenize_str(s).into_iter().map(|x| x.token).collect();
         assert_eq!(
             vec![
-                LocatedToken {
-                    span: Span { lo: 0, len: 1 },
-                    token: Token::Ampersand,
-                },
-                LocatedToken {
-                    span: Span { lo: 1, len: 3 },
-                    token: Token::Identifier("abc".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 4, len: 1 },
-                    token: Token::Equals,
-                },
-                LocatedToken {
-                    span: Span { lo: 5, len: 2 },
-                    token: Token::Number(".2".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 7, len: 1 },
-                    token: Token::RightSlash,
-                },
+                Token::Ampersand,
+                Token::Identifier("abc".to_string()),
+                Token::Equals,
+                Token::Number(".2".to_string()),
+                Token::RightSlash,
             ],
             tokens
         );
@@ -747,29 +814,14 @@ mod tests {
     #[test]
     fn trivial_tokens6() {
         let s = "&abc=2./";
-        let tokens = tokenize_str(s);
+        let tokens: Vec<_> = tokenize_str(s).into_iter().map(|x| x.token).collect();
         assert_eq!(
             vec![
-                LocatedToken {
-                    span: Span { lo: 0, len: 1 },
-                    token: Token::Ampersand,
-                },
-                LocatedToken {
-                    span: Span { lo: 1, len: 3 },
-                    token: Token::Identifier("abc".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 4, len: 1 },
-                    token: Token::Equals,
-                },
-                LocatedToken {
-                    span: Span { lo: 5, len: 2 },
-                    token: Token::Number("2.".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 7, len: 1 },
-                    token: Token::RightSlash,
-                },
+                Token::Ampersand,
+                Token::Identifier("abc".to_string()),
+                Token::Equals,
+                Token::Number("2.".to_string()),
+                Token::RightSlash,
             ],
             tokens
         );
@@ -777,33 +829,15 @@ mod tests {
     #[test]
     fn trivial_tokens7() {
         let s = "&abc=2.\n/";
-        let tokens = tokenize_str(s);
+        let tokens: Vec<_> = tokenize_str(s).into_iter().map(|x| x.token).collect();
         assert_eq!(
             vec![
-                LocatedToken {
-                    span: Span { lo: 0, len: 1 },
-                    token: Token::Ampersand,
-                },
-                LocatedToken {
-                    span: Span { lo: 1, len: 3 },
-                    token: Token::Identifier("abc".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 4, len: 1 },
-                    token: Token::Equals,
-                },
-                LocatedToken {
-                    span: Span { lo: 5, len: 2 },
-                    token: Token::Number("2.".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 7, len: 1 },
-                    token: Token::Whitespace("\n".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 8, len: 1 },
-                    token: Token::RightSlash,
-                },
+                Token::Ampersand,
+                Token::Identifier("abc".to_string()),
+                Token::Equals,
+                Token::Number("2.".to_string()),
+                Token::Whitespace("\n".to_string()),
+                Token::RightSlash,
             ],
             tokens
         );
@@ -811,33 +845,15 @@ mod tests {
     #[test]
     fn trivial_tokens8() {
         let s = "&abc=2.\r\n/";
-        let tokens = tokenize_str(s);
+        let tokens: Vec<_> = tokenize_str(s).into_iter().map(|x| x.token).collect();
         assert_eq!(
             vec![
-                LocatedToken {
-                    span: Span { lo: 0, len: 1 },
-                    token: Token::Ampersand,
-                },
-                LocatedToken {
-                    span: Span { lo: 1, len: 3 },
-                    token: Token::Identifier("abc".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 4, len: 1 },
-                    token: Token::Equals,
-                },
-                LocatedToken {
-                    span: Span { lo: 5, len: 2 },
-                    token: Token::Number("2.".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 7, len: 2 },
-                    token: Token::Whitespace("\r\n".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 9, len: 1 },
-                    token: Token::RightSlash,
-                },
+                Token::Ampersand,
+                Token::Identifier("abc".to_string()),
+                Token::Equals,
+                Token::Number("2.".to_string()),
+                Token::Whitespace("\r\n".to_string()),
+                Token::RightSlash,
             ],
             tokens
         );
@@ -846,64 +862,22 @@ mod tests {
     #[test]
     fn simple_tokens1() {
         let s = "&H abc=2,'ad c' (2,:)";
-        let tokens = tokenize_str(s);
+        let tokens: Vec<_> = tokenize_str(s).into_iter().map(|x| x.token).collect();
         let expected = vec![
-            LocatedToken {
-                span: Span { lo: 0, len: 1 },
-                token: Token::Ampersand,
-            },
-            LocatedToken {
-                span: Span { lo: 1, len: 1 },
-                token: Token::Identifier("H".to_string()),
-            },
-            LocatedToken {
-                span: Span { lo: 2, len: 1 },
-                token: Token::Whitespace(" ".to_string()),
-            },
-            LocatedToken {
-                span: Span { lo: 3, len: 3 },
-                token: Token::Identifier("abc".to_string()),
-            },
-            LocatedToken {
-                span: Span { lo: 6, len: 1 },
-                token: Token::Equals,
-            },
-            LocatedToken {
-                span: Span { lo: 7, len: 1 },
-                token: Token::Number("2".to_string()),
-            },
-            LocatedToken {
-                span: Span { lo: 8, len: 1 },
-                token: Token::Comma,
-            },
-            LocatedToken {
-                span: Span { lo: 9, len: 6 },
-                token: Token::QuotedStr("'ad c'".to_string()),
-            },
-            LocatedToken {
-                span: Span { lo: 15, len: 1 },
-                token: Token::Whitespace(" ".to_string()),
-            },
-            LocatedToken {
-                span: Span { lo: 16, len: 1 },
-                token: Token::LeftBracket,
-            },
-            LocatedToken {
-                span: Span { lo: 17, len: 1 },
-                token: Token::Number("2".to_string()),
-            },
-            LocatedToken {
-                span: Span { lo: 18, len: 1 },
-                token: Token::Comma,
-            },
-            LocatedToken {
-                span: Span { lo: 19, len: 1 },
-                token: Token::Colon,
-            },
-            LocatedToken {
-                span: Span { lo: 20, len: 1 },
-                token: Token::RightBracket,
-            },
+            Token::Ampersand,
+            Token::Identifier("H".to_string()),
+            Token::Whitespace(" ".to_string()),
+            Token::Identifier("abc".to_string()),
+            Token::Equals,
+            Token::Number("2".to_string()),
+            Token::Comma,
+            Token::QuotedStr("'ad c'".to_string()),
+            Token::Whitespace(" ".to_string()),
+            Token::LeftBracket,
+            Token::Number("2".to_string()),
+            Token::Comma,
+            Token::Colon,
+            Token::RightBracket,
         ];
         assert_eq!(expected, tokens);
     }
@@ -911,64 +885,25 @@ mod tests {
     #[test]
     fn simple_tokens2() {
         assert_eq!(
-            tokenize_str("&H TEMPERATURES(1:2)=273.15, 274"),
+            tokenize_str("&H TEMPERATURES(1:2)=273.15, 274")
+                .into_iter()
+                .map(|x| x.token)
+                .collect::<Vec<_>>(),
             vec![
-                LocatedToken {
-                    span: Span { lo: 0, len: 1 },
-                    token: Token::Ampersand,
-                },
-                LocatedToken {
-                    span: Span { lo: 1, len: 1 },
-                    token: Token::Identifier("H".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 2, len: 1 },
-                    token: Token::Whitespace(" ".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 3, len: 12 },
-                    token: Token::Identifier("TEMPERATURES".to_string())
-                },
-                LocatedToken {
-                    span: Span { lo: 15, len: 1 },
-                    token: Token::LeftBracket
-                },
-                LocatedToken {
-                    span: Span { lo: 16, len: 1 },
-                    token: Token::Number("1".to_string())
-                },
-                LocatedToken {
-                    span: Span { lo: 17, len: 1 },
-                    token: Token::Colon
-                },
-                LocatedToken {
-                    span: Span { lo: 18, len: 1 },
-                    token: Token::Number("2".to_string())
-                },
-                LocatedToken {
-                    span: Span { lo: 19, len: 1 },
-                    token: Token::RightBracket
-                },
-                LocatedToken {
-                    span: Span { lo: 20, len: 1 },
-                    token: Token::Equals
-                },
-                LocatedToken {
-                    span: Span { lo: 21, len: 6 },
-                    token: Token::Number("273.15".to_string())
-                },
-                LocatedToken {
-                    span: Span { lo: 27, len: 1 },
-                    token: Token::Comma
-                },
-                LocatedToken {
-                    span: Span { lo: 28, len: 1 },
-                    token: Token::Whitespace(" ".to_string())
-                },
-                LocatedToken {
-                    span: Span { lo: 29, len: 3 },
-                    token: Token::Number("274".to_string())
-                }
+                Token::Ampersand,
+                Token::Identifier("H".to_string()),
+                Token::Whitespace(" ".to_string()),
+                Token::Identifier("TEMPERATURES".to_string()),
+                Token::LeftBracket,
+                Token::Number("1".to_string()),
+                Token::Colon,
+                Token::Number("2".to_string()),
+                Token::RightBracket,
+                Token::Equals,
+                Token::Number("273.15".to_string()),
+                Token::Comma,
+                Token::Whitespace(" ".to_string()),
+                Token::Number("274".to_string()),
             ]
         );
     }
@@ -976,64 +911,25 @@ mod tests {
     #[test]
     fn simple_tokens3() {
         assert_eq!(
-            tokenize_str("&H TEMPERATURES(1:2)=273.15, \n 274"),
+            tokenize_str("&H TEMPERATURES(1:2)=273.15, \n 274")
+                .into_iter()
+                .map(|x| x.token)
+                .collect::<Vec<_>>(),
             vec![
-                LocatedToken {
-                    span: Span { lo: 0, len: 1 },
-                    token: Token::Ampersand,
-                },
-                LocatedToken {
-                    span: Span { lo: 1, len: 1 },
-                    token: Token::Identifier("H".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 2, len: 1 },
-                    token: Token::Whitespace(" ".to_string()),
-                },
-                LocatedToken {
-                    span: Span { lo: 3, len: 12 },
-                    token: Token::Identifier("TEMPERATURES".to_string())
-                },
-                LocatedToken {
-                    span: Span { lo: 15, len: 1 },
-                    token: Token::LeftBracket
-                },
-                LocatedToken {
-                    span: Span { lo: 16, len: 1 },
-                    token: Token::Number("1".to_string())
-                },
-                LocatedToken {
-                    span: Span { lo: 17, len: 1 },
-                    token: Token::Colon
-                },
-                LocatedToken {
-                    span: Span { lo: 18, len: 1 },
-                    token: Token::Number("2".to_string())
-                },
-                LocatedToken {
-                    span: Span { lo: 19, len: 1 },
-                    token: Token::RightBracket
-                },
-                LocatedToken {
-                    span: Span { lo: 20, len: 1 },
-                    token: Token::Equals
-                },
-                LocatedToken {
-                    span: Span { lo: 21, len: 6 },
-                    token: Token::Number("273.15".to_string())
-                },
-                LocatedToken {
-                    span: Span { lo: 27, len: 1 },
-                    token: Token::Comma
-                },
-                LocatedToken {
-                    span: Span { lo: 28, len: 3 },
-                    token: Token::Whitespace(" \n ".to_string())
-                },
-                LocatedToken {
-                    span: Span { lo: 31, len: 3 },
-                    token: Token::Number("274".to_string())
-                }
+                Token::Ampersand,
+                Token::Identifier("H".to_string()),
+                Token::Whitespace(" ".to_string()),
+                Token::Identifier("TEMPERATURES".to_string()),
+                Token::LeftBracket,
+                Token::Number("1".to_string()),
+                Token::Colon,
+                Token::Number("2".to_string()),
+                Token::RightBracket,
+                Token::Equals,
+                Token::Number("273.15".to_string()),
+                Token::Comma,
+                Token::Whitespace(" \n ".to_string()),
+                Token::Number("274".to_string()),
             ]
         );
     }

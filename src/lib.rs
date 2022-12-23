@@ -26,10 +26,7 @@ impl Namelist {
         }
     }
     pub fn append_token(&mut self, token: Token) {
-        let located = LocatedToken {
-            span: Span { lo: 0, len: 0 },
-            token,
-        };
+        let located = LocatedToken { span: None, token };
         let tokens = match self {
             Self::Actual { tokens } => tokens,
             Self::Other { tokens } => tokens,
@@ -123,7 +120,7 @@ impl<R: Read> Iterator for NmlParser<R> {
 use std::{fmt::Display, io::Read};
 
 use namelists::parse_namelist;
-use tokenizer::{LocatedToken, Span, Token, TokenIter};
+use tokenizer::{LocatedToken, Token, TokenIter};
 
 #[cfg(test)]
 mod tests {
@@ -139,43 +136,93 @@ mod tests {
             tokens: vec![
                 LocatedToken {
                     token: Token::Ampersand,
-                    span: Span { lo: 0, len: 1 },
+                    span: Some(Span {
+                        lo: 0,
+                        len: 1,
+                        column: 0,
+                        line: 0,
+                    }),
                 },
                 LocatedToken {
                     token: Token::Identifier("Head".to_string()),
-                    span: Span { lo: 1, len: 4 },
+                    span: Some(Span {
+                        lo: 1,
+                        len: 4,
+                        column: 1,
+                        line: 0,
+                    }),
                 },
                 LocatedToken {
                     token: Token::Whitespace(" ".to_string()),
-                    span: Span { lo: 5, len: 1 },
+                    span: Some(Span {
+                        lo: 5,
+                        len: 1,
+                        column: 5,
+                        line: 0,
+                    }),
                 },
                 LocatedToken {
                     token: Token::Identifier("val".to_string()),
-                    span: Span { lo: 6, len: 3 },
+                    span: Some(Span {
+                        lo: 6,
+                        len: 3,
+                        column: 6,
+                        line: 0,
+                    }),
                 },
                 LocatedToken {
                     token: Token::Whitespace(" ".to_string()),
-                    span: Span { lo: 9, len: 1 },
+                    span: Some(Span {
+                        lo: 9,
+                        len: 1,
+                        column: 9,
+                        line: 0,
+                    }),
                 },
                 LocatedToken {
                     token: Token::Equals,
-                    span: Span { lo: 10, len: 1 },
+                    span: Some(Span {
+                        lo: 10,
+                        len: 1,
+                        column: 10,
+                        line: 0,
+                    }),
                 },
                 LocatedToken {
                     token: Token::Whitespace(" ".to_string()),
-                    span: Span { lo: 11, len: 1 },
+                    span: Some(Span {
+                        lo: 11,
+                        len: 1,
+                        column: 11,
+                        line: 0,
+                    }),
                 },
                 LocatedToken {
                     token: Token::Number("2".to_string()),
-                    span: Span { lo: 12, len: 1 },
+                    span: Some(Span {
+                        lo: 12,
+                        len: 1,
+                        column: 12,
+                        line: 0,
+                    }),
                 },
                 LocatedToken {
                     token: Token::Whitespace(" ".to_string()),
-                    span: Span { lo: 13, len: 1 },
+                    span: Some(Span {
+                        lo: 13,
+                        len: 1,
+                        column: 13,
+                        line: 0,
+                    }),
                 },
                 LocatedToken {
                     token: Token::RightSlash,
-                    span: Span { lo: 14, len: 1 },
+                    span: Some(Span {
+                        lo: 14,
+                        len: 1,
+                        column: 14,
+                        line: 0,
+                    }),
                 },
             ],
         }];
@@ -189,54 +236,23 @@ mod tests {
         if let Some(nml) = nmls.last_mut() {
             nml.append_token(Token::Identifier("hello".to_string()))
         }
-        let expected = vec![Namelist::Actual {
-            tokens: vec![
-                LocatedToken {
-                    token: Token::Ampersand,
-                    span: Span { lo: 0, len: 1 },
-                },
-                LocatedToken {
-                    token: Token::Identifier("Head".to_string()),
-                    span: Span { lo: 1, len: 4 },
-                },
-                LocatedToken {
-                    token: Token::Whitespace(" ".to_string()),
-                    span: Span { lo: 5, len: 1 },
-                },
-                LocatedToken {
-                    token: Token::Identifier("val".to_string()),
-                    span: Span { lo: 6, len: 3 },
-                },
-                LocatedToken {
-                    token: Token::Whitespace(" ".to_string()),
-                    span: Span { lo: 9, len: 1 },
-                },
-                LocatedToken {
-                    token: Token::Equals,
-                    span: Span { lo: 10, len: 1 },
-                },
-                LocatedToken {
-                    token: Token::Whitespace(" ".to_string()),
-                    span: Span { lo: 11, len: 1 },
-                },
-                LocatedToken {
-                    token: Token::Number("2".to_string()),
-                    span: Span { lo: 12, len: 1 },
-                },
-                LocatedToken {
-                    token: Token::Whitespace(" ".to_string()),
-                    span: Span { lo: 13, len: 1 },
-                },
-                LocatedToken {
-                    token: Token::Identifier("hello".to_string()),
-                    span: Span { lo: 0, len: 0 },
-                },
-                LocatedToken {
-                    token: Token::RightSlash,
-                    span: Span { lo: 14, len: 1 },
-                },
-            ],
-        }];
+        let nmls: Vec<Vec<Token>> = nmls
+            .into_iter()
+            .map(|x| x.tokens().iter().map(|x| x.token.clone()).collect())
+            .collect();
+        let expected = vec![vec![
+            Token::Ampersand,
+            Token::Identifier("Head".to_string()),
+            Token::Whitespace(" ".to_string()),
+            Token::Identifier("val".to_string()),
+            Token::Whitespace(" ".to_string()),
+            Token::Equals,
+            Token::Whitespace(" ".to_string()),
+            Token::Number("2".to_string()),
+            Token::Whitespace(" ".to_string()),
+            Token::Identifier("hello".to_string()),
+            Token::RightSlash,
+        ]];
         assert_eq!(nmls, expected);
     }
 
