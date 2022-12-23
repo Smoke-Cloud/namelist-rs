@@ -805,6 +805,19 @@ pub enum TokenizerError {
     CharError(Span, CharDecodeError),
 }
 
+impl TokenizerError {
+    pub fn span(&self) -> Span {
+        match self {
+            Self::InvalidBoolOrNumber(span) => *span,
+            Self::InvalidCharacter(span) => *span,
+            Self::UnfinishedBool(span) => *span,
+            Self::UnfinishedBoolOrNumber(span) => *span,
+            Self::UnclosedQuote(span) => *span,
+            Self::CharError(span, _) => *span,
+        }
+    }
+}
+
 impl std::fmt::Display for TokenizerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
