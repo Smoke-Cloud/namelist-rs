@@ -56,7 +56,7 @@ pub enum Token {
     Comment(String),
 }
 impl Token {
-    pub(crate) fn is_location_token(&self) -> bool {
+    pub fn is_location_token(&self) -> bool {
         match self {
             Self::LeftBracket => true,
             Self::RightBracket => true,
@@ -66,12 +66,12 @@ impl Token {
             Self::RightSlash => false,
             Self::Ampersand => false,
             Self::NewLine => true,
-            Self::Bool(s) => false,
-            Self::QuotedStr(s) => false,
-            Self::Whitespace(s) => true,
-            Self::Identifier(s) => false,
-            Self::Number(s) => true,
-            Self::Comment(s) => true,
+            Self::Bool(_) => false,
+            Self::QuotedStr(_) => false,
+            Self::Whitespace(_) => true,
+            Self::Identifier(_) => false,
+            Self::Number(_) => true,
+            Self::Comment(_) => true,
         }
     }
 }
