@@ -55,6 +55,26 @@ pub enum Token {
     Number(String),
     Comment(String),
 }
+impl Token {
+    pub(crate) fn is_location_token(&self) -> bool {
+        match self {
+            Self::LeftBracket => true,
+            Self::RightBracket => true,
+            Self::Equals => false,
+            Self::Colon => true,
+            Self::Comma => true,
+            Self::RightSlash => false,
+            Self::Ampersand => false,
+            Self::NewLine => true,
+            Self::Bool(s) => false,
+            Self::QuotedStr(s) => false,
+            Self::Whitespace(s) => true,
+            Self::Identifier(s) => false,
+            Self::Number(s) => true,
+            Self::Comment(s) => true,
+        }
+    }
+}
 
 impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

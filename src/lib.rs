@@ -157,16 +157,42 @@ impl ParsedNamelist {
         {
             // Take parameter name
             let parameter_name = pn.clone();
+            let mut location_tokens: Vec<LocatedToken> = vec![];
             if parameter_name.token == Token::RightSlash {
                 break;
             }
             if let Token::Identifier(name) = &parameter_name.token {
-                {
+                let mut in_location = false;
+                loop {
                     let b = token_buf.pop();
-                    let token = b.as_ref().or_else(|| next_non_ws(&mut tokens));
-                    if let Some(Token::Equals) = token.map(|lt| &lt.token) {
+                    let located_token = b.as_ref().or_else(|| next_non_ws(&mut tokens));
+                    if let Some(token) = located_token {
+                        match &token.token {
+                            Token::LeftBracket => {
+                                in_location = true;
+                                location_tokens.push(token.clone());
+                            }
+                            Token::RightBracket => {
+                                in_location = false;
+                                location_tokens.push(token.clone());
+                            }
+                            Token::Equals => {
+                                if in_location {
+                                    panic!("Found '=' in location");
+                                } else {
+                                    break;
+                                }
+                            }
+                            t => {
+                                if t.is_location_token() {
+                                    location_tokens.push(token.clone());
+                                } else {
+                                    panic!("invalid location token {:?}", t);
+                                }
+                            }
+                        }
                     } else {
-                        return Err(NmlParseError::NoEquals(token.and_then(|t| t.span)));
+                        return Err(NmlParseError::NoEquals(located_token.and_then(|t| t.span)));
                     };
                 }
                 let mut value_tokens: Vec<LocatedToken> = vec![];
@@ -191,7 +217,7 @@ impl ParsedNamelist {
                     name.to_string(),
                     ParameterValues {
                         span: pn.span,
-                        dimensions: vec![],
+                        dimensions: location_tokens,
                         values: value_tokens,
                     },
                 );
@@ -402,6 +428,94 @@ mod tests {
             Token::RightSlash,
         ]];
         assert_eq!(nmls, expected);
+    }
+
+    #[test]
+    fn parsenml1() {
+        let input = "&Head val= 1,2,3 /";
+        let parser = NmlParser::new(std::io::Cursor::new(input));
+        let nmls = parser
+            .collect::<Result<Vec<Namelist>, _>>()
+            .expect("test parse failed");
+        for nml in nmls {
+            ParsedNamelist::from_namelist(&nml).unwrap();
+        }
+    }
+
+    #[test]
+    fn parsenml2() {
+        let input = "&Head val(1:3)= 1,2,3 /";
+        let parser = NmlParser::new(std::io::Cursor::new(input));
+        let nmls = parser
+            .collect::<Result<Vec<Namelist>, _>>()
+            .expect("test parse failed");
+        for nml in nmls {
+            let pnml = ParsedNamelist::from_namelist(&nml).unwrap();
+            assert_eq!(pnml.group, "Head");
+            let p = pnml.parameters.get("val").unwrap();
+            eprintln!("pnml: {pnml:#?}");
+            assert_eq!(p.dimensions.len(), 5);
+            assert_eq!(
+                p.dimensions[0],
+                LocatedToken {
+                    span: Some(Span {
+                        lo: 9,
+                        column: 9,
+                        line: 0,
+                        len: 1
+                    }),
+                    token: Token::LeftBracket
+                }
+            );
+            assert_eq!(
+                p.dimensions[1],
+                LocatedToken {
+                    span: Some(Span {
+                        lo: 10,
+                        column: 10,
+                        line: 0,
+                        len: 1
+                    }),
+                    token: Token::Number("1".to_string())
+                }
+            );
+            assert_eq!(
+                p.dimensions[2],
+                LocatedToken {
+                    span: Some(Span {
+                        lo: 11,
+                        column: 11,
+                        line: 0,
+                        len: 1
+                    }),
+                    token: Token::Colon
+                }
+            );
+            assert_eq!(
+                p.dimensions[3],
+                LocatedToken {
+                    span: Some(Span {
+                        lo: 12,
+                        column: 12,
+                        line: 0,
+                        len: 1
+                    }),
+                    token: Token::Number("3".to_string())
+                }
+            );
+            assert_eq!(
+                p.dimensions[4],
+                LocatedToken {
+                    span: Some(Span {
+                        lo: 13,
+                        column: 13,
+                        line: 0,
+                        len: 1
+                    }),
+                    token: Token::RightBracket
+                }
+            );
+        }
     }
 
     #[test]
