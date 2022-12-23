@@ -1,5 +1,8 @@
 pub mod namelists;
 pub mod tokenizer;
+use namelists::parse_namelist;
+use std::{collections::HashMap, fmt::Display, io::Read, slice::Iter};
+use tokenizer::{LocatedToken, NmlParseError, Span, Token, TokenIter, TokenizerError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NamelistFile {
@@ -123,10 +126,107 @@ impl<R: Read> Iterator for NmlParser<R> {
     }
 }
 
-use std::{fmt::Display, io::Read};
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParsedNamelist {
+    pub group: String,
+    pub span: Option<Span>,
+    pub parameters: HashMap<String, ParameterValues>,
+}
 
-use namelists::parse_namelist;
-use tokenizer::{LocatedToken, Token, TokenIter, TokenizerError};
+impl ParsedNamelist {
+    pub fn from_namelist(nml: &Namelist) -> Result<ParsedNamelist, NmlParseError> {
+        let mut tokens = nml.tokens().iter();
+        let first_token = tokens.next().ok_or(NmlParseError::NoTokens)?;
+        if first_token.token != Token::Ampersand {
+            return Err(NmlParseError::NoAmpersand(first_token.span));
+        }
+
+        let (group, group_span) = {
+            let gn = tokens.next().ok_or(NmlParseError::NoTokens)?;
+            if let Token::Identifier(s) = &gn.token {
+                (s.to_string(), gn.span())
+            } else {
+                return Err(NmlParseError::InvalidGroupName(gn.span));
+            }
+        };
+        let mut parameters: HashMap<String, ParameterValues> = Default::default();
+        let mut token_buf: Vec<LocatedToken> = vec![];
+        while let Some(pn) = token_buf
+            .pop()
+            .or_else(|| next_non_ws(&mut tokens).cloned())
+        {
+            // Take parameter name
+            let parameter_name = pn.clone();
+            if parameter_name.token == Token::RightSlash {
+                break;
+            }
+            if let Token::Identifier(name) = &parameter_name.token {
+                {
+                    let b = token_buf.pop();
+                    let token = b.as_ref().or_else(|| next_non_ws(&mut tokens));
+                    if let Some(Token::Equals) = token.map(|lt| &lt.token) {
+                    } else {
+                        return Err(NmlParseError::NoEquals(token.and_then(|t| t.span)));
+                    };
+                }
+                let mut value_tokens: Vec<LocatedToken> = vec![];
+                while let Some(token) = token_buf
+                    .pop()
+                    .as_ref()
+                    .or_else(|| next_non_ws(&mut tokens))
+                {
+                    if token.token == Token::RightSlash {
+                        break;
+                    }
+                    if token.token == Token::Equals {
+                        token_buf.push(token.clone());
+                        if let Some(t) = value_tokens.pop() {
+                            token_buf.push(t);
+                        }
+                        break;
+                    }
+                    value_tokens.push(token.clone());
+                }
+                parameters.insert(
+                    name.to_string(),
+                    ParameterValues {
+                        span: pn.span,
+                        dimensions: vec![],
+                        values: value_tokens,
+                    },
+                );
+                // loop until we hit equals or right slash
+                continue;
+            } else {
+                return Err(NmlParseError::InvalidParameterName(parameter_name.span));
+            }
+        }
+        Ok(ParsedNamelist {
+            group,
+            span: group_span,
+            parameters,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParameterValues {
+    pub span: Option<Span>,
+    pub dimensions: Vec<LocatedToken>,
+    pub values: Vec<LocatedToken>,
+}
+
+fn next_non_ws<'a>(tokens: &'a mut Iter<LocatedToken>) -> Option<&'a LocatedToken> {
+    loop {
+        let token = tokens.next()?;
+        match token.token {
+            Token::Whitespace(_) | Token::Comma => {
+                continue;
+            }
+            _ => return Some(token),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -240,7 +340,9 @@ mod tests {
     fn single_nml_append() {
         let input = "&Head val = 2 /";
         let parser = NmlParser::new(std::io::Cursor::new(input));
-        let mut nmls = parser.collect::<Result<Vec<Namelist>, _>>().unwrap();
+        let mut nmls = parser
+            .collect::<Result<Vec<Namelist>, _>>()
+            .expect("test parse failed");
         if let Some(nml) = nmls.last_mut() {
             nml.append_token(Token::Identifier("hello".to_string()))
         }

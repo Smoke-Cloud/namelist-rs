@@ -796,9 +796,82 @@ pub fn tokenize_str(input: &str) -> Result<Vec<LocatedToken>, TokenizerError> {
 }
 
 #[derive(Debug)]
+pub enum NmlParseError {
+    Tokenize(TokenizerError),
+    InvalidParameterName(Option<Span>),
+    NoAmpersand(Option<Span>),
+    InvalidGroupName(Option<Span>),
+    NoEquals(Option<Span>),
+    NoTokens,
+    // Parse(Option<Span>, String),
+    // Io(std::io::Error),
+}
+
+impl NmlParseError {
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            Self::Tokenize(err) => Some(err.span()),
+            Self::InvalidParameterName(span) => *span,
+            Self::NoAmpersand(span) => *span,
+            Self::InvalidGroupName(span) => *span,
+            Self::NoEquals(span) => *span,
+            Self::NoTokens => None,
+            // Self::Parse(span, _) => *span,
+            // Self::Io(_) => None,
+        }
+    }
+}
+
+impl std::fmt::Display for NmlParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Tokenize(err) => {
+                write!(f, "{err}")
+            }
+            Self::InvalidParameterName(_) => {
+                write!(f, "invalid parameter name")
+            }
+            Self::NoAmpersand(_) => {
+                write!(f, "no ampersand at the beginning of namelist")
+            }
+            Self::InvalidGroupName(_) => {
+                write!(f, "no ampersand at the beginning of namelist")
+            }
+            Self::NoEquals(_) => {
+                write!(f, "no equals succeeding tthe parameter name")
+            }
+            Self::NoTokens => {
+                write!(f, "namelist ended early with insufficient tokens")
+            } // Self::Parse(_, err) => {
+              //     write!(f, "{err}")
+              // }
+              // Self::Io(err) => {
+              //     write!(f, "{err}")
+              // }
+        }
+    }
+}
+
+impl std::error::Error for NmlParseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Tokenize(err) => Some(err),
+            Self::InvalidParameterName(_) => None,
+            Self::NoAmpersand(_) => None,
+            Self::InvalidGroupName(_) => None,
+            Self::NoEquals(_) => None,
+            Self::NoTokens => None,
+            // Self::Parse(_, _) => None,
+            // Self::Io(err) => Some(err),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum TokenizerError {
     InvalidBoolOrNumber(Span),
     InvalidCharacter(Span),
+    // InvalidParameterName(Span),
     UnfinishedBool(Span),
     UnfinishedBoolOrNumber(Span),
     UnclosedQuote(Span),
