@@ -517,6 +517,26 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn parsenml3() {
+        let input = "&Head val(1:  3)= 1,2,3 /";
+        let parser = NmlParser::new(std::io::Cursor::new(input));
+        let nmls = parser
+            .collect::<Result<Vec<Namelist>, _>>()
+            .expect("test parse failed");
+        for nml in nmls {
+            let pnml = ParsedNamelist::from_namelist(&nml).unwrap();
+            assert_eq!(pnml.group, "Head");
+            let p = pnml.parameters.get("val").unwrap();
+            eprintln!("pnml: {pnml:#?}");
+            assert_eq!(p.dimensions.len(), 5);
+            assert_eq!(p.dimensions[0].token, Token::LeftBracket);
+            assert_eq!(p.dimensions[1].token, Token::Number("1".to_string()));
+            assert_eq!(p.dimensions[2].token, Token::Colon);
+            assert_eq!(p.dimensions[3].token, Token::Number("3".to_string()));
+            assert_eq!(p.dimensions[4].token, Token::RightBracket,);
+        }
+    }
 
     #[test]
     fn two_nmls() {
