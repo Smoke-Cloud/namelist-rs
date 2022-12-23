@@ -71,17 +71,23 @@ pub enum ParserState {
 }
 
 impl<R: Read> Iterator for NmlParser<R> {
-    type Item = Namelist;
+    type Item = Result<Namelist, TokenizerError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let tokens = loop {
-            let token = if let Some(token) = self.tokenizer.next().map(|x| x.unwrap()) {
-                token
-            } else if !self.next_namelist.is_empty() {
-                let tokens = std::mem::take(&mut self.next_namelist);
-                break Some(tokens);
-            } else {
-                break None;
+            let token = match self.tokenizer.next() {
+                Some(Ok(token)) => token,
+                Some(Err(err)) => {
+                    return Some(Err(err));
+                }
+                None => {
+                    if !self.next_namelist.is_empty() {
+                        let tokens = std::mem::take(&mut self.next_namelist);
+                        break Some(tokens);
+                    } else {
+                        break None;
+                    }
+                }
             };
             match self.state {
                 ParserState::Start => {
@@ -113,14 +119,14 @@ impl<R: Read> Iterator for NmlParser<R> {
                 }
             }
         }?;
-        parse_namelist(tokens)
+        parse_namelist(tokens).map(Ok)
     }
 }
 
 use std::{fmt::Display, io::Read};
 
 use namelists::parse_namelist;
-use tokenizer::{LocatedToken, Token, TokenIter};
+use tokenizer::{LocatedToken, Token, TokenIter, TokenizerError};
 
 #[cfg(test)]
 mod tests {
@@ -131,7 +137,9 @@ mod tests {
     fn single_nml() {
         let input = "&Head val = 2 /";
         let parser = NmlParser::new(std::io::Cursor::new(input));
-        let nmls: Vec<Namelist> = parser.collect();
+        let nmls = parser
+            .collect::<Result<Vec<Namelist>, _>>()
+            .expect("test parse failed");
         let expected = vec![Namelist::Actual {
             tokens: vec![
                 LocatedToken {
@@ -232,7 +240,7 @@ mod tests {
     fn single_nml_append() {
         let input = "&Head val = 2 /";
         let parser = NmlParser::new(std::io::Cursor::new(input));
-        let mut nmls: Vec<Namelist> = parser.collect();
+        let mut nmls = parser.collect::<Result<Vec<Namelist>, _>>().unwrap();
         if let Some(nml) = nmls.last_mut() {
             nml.append_token(Token::Identifier("hello".to_string()))
         }
@@ -262,10 +270,12 @@ mod tests {
         let parser = NmlParser::new(std::io::Cursor::new(input));
         let nmls: Vec<Vec<Token>> = parser
             .map(|nml| {
-                let tokens: Vec<Token> = nml.into_tokens().into_iter().map(|x| x.token).collect();
+                let tokens: Result<Vec<Token>, _> =
+                    nml.map(|nml| nml.into_tokens().into_iter().map(|x| x.token).collect());
                 tokens
             })
-            .collect();
+            .collect::<Result<Vec<Vec<Token>>, _>>()
+            .expect("test parse failed");
         let expected = vec![
             vec![
                 Token::Ampersand,

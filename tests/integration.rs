@@ -1,11 +1,15 @@
 #[cfg(test)]
 mod integration {
+    use namelist::Namelist;
+
     #[test]
     fn parse_file_test_a() {
         let input = include_str!("TestA.fds");
         let t1 = std::time::Instant::now();
         let parser = namelist::NmlParser::new(std::io::Cursor::new(input));
-        let nmls: Vec<_> = parser.collect();
+        let nmls: Vec<_> = parser
+            .collect::<Result<Vec<Namelist>, _>>()
+            .expect("test parse failed");
         let mut new = String::new();
         for nml in nmls {
             new.push_str(&nml.to_string());
@@ -20,7 +24,9 @@ mod integration {
         let input = include_str!("TestD.fds");
         let t1 = std::time::Instant::now();
         let parser = namelist::NmlParser::new(std::io::Cursor::new(input));
-        let nmls: Vec<_> = parser.collect();
+        let nmls: Vec<_> = parser
+            .collect::<Result<Vec<Namelist>, _>>()
+            .expect("test parse failed");
         let mut new = String::new();
         for nml in nmls {
             new.push_str(&nml.to_string());
@@ -35,7 +41,9 @@ mod integration {
         let input = include_str!("TestE.fds");
         let t1 = std::time::Instant::now();
         let parser = namelist::NmlParser::new(std::io::Cursor::new(input));
-        let nmls: Vec<_> = parser.collect();
+        let nmls: Vec<_> = parser
+            .collect::<Result<Vec<Namelist>, _>>()
+            .expect("test parse failed");
         let mut new = String::new();
         for nml in nmls {
             new.push_str(&nml.to_string());
@@ -50,7 +58,9 @@ mod integration {
         let input = include_str!("TestF.fds");
         let t1 = std::time::Instant::now();
         let parser = namelist::NmlParser::new(std::io::Cursor::new(input));
-        let nmls: Vec<_> = parser.collect();
+        let nmls: Vec<_> = parser
+            .collect::<Result<Vec<Namelist>, _>>()
+            .expect("test parse failed");
         let mut new = String::new();
         for nml in nmls {
             new.push_str(&nml.to_string());
@@ -65,7 +75,9 @@ mod integration {
         let input = include_str!("TestG.fds");
         let t1 = std::time::Instant::now();
         let parser = namelist::NmlParser::new(std::io::Cursor::new(input));
-        let nmls: Vec<_> = parser.collect();
+        let nmls: Vec<_> = parser
+            .collect::<Result<Vec<Namelist>, _>>()
+            .expect("test parse failed");
         let mut new = String::new();
         for nml in nmls {
             new.push_str(&nml.to_string());
@@ -80,7 +92,9 @@ mod integration {
         let input = include_str!("room_fire.fds");
         let t1 = std::time::Instant::now();
         let parser = namelist::NmlParser::new(std::io::Cursor::new(input));
-        let nmls: Vec<_> = parser.collect();
+        let nmls: Vec<_> = parser
+            .collect::<Result<Vec<Namelist>, _>>()
+            .expect("test parse failed");
         let mut new = String::new();
         for nml in nmls {
             new.push_str(&nml.to_string());
