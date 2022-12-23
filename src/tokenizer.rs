@@ -771,7 +771,6 @@ impl<R: std::io::Read> Iterator for TokenIter<R> {
                 }
             }
         };
-        eprintln!("line: {} column: {}", self.line, self.column);
         if let Some(Ok(ref token)) = token {
             self.pos_advance_token(&token.token);
         }
