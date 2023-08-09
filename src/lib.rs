@@ -22,6 +22,12 @@ impl Namelist {
             Self::Other { tokens } => tokens,
         }
     }
+    pub fn tokens_mut(&mut self) -> &mut Vec<LocatedToken> {
+        match self {
+            Self::Actual { tokens } => tokens,
+            Self::Other { tokens } => tokens,
+        }
+    }
     pub fn into_tokens(self) -> Vec<LocatedToken> {
         match self {
             Self::Actual { tokens } => tokens,
@@ -39,6 +45,48 @@ impl Namelist {
         } else {
             tokens.push(located);
         }
+    }
+
+    /// Returns true if successfull.
+    pub fn remove_parameter(&mut self, parameter_name: &str) -> bool {
+        // TODO: consume and replace whitespace either side and replace with a
+        // single space. This would need to deal with comments too.
+        if let Some((start, length)) = self.find_parameter(parameter_name) {
+            let tokens = self.tokens_mut();
+            tokens.drain(start..(start + length));
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn find_parameter(&self, parameter_name: &str) -> Option<(usize, usize)> {
+        let tokens = match self {
+            Self::Actual { tokens } => tokens,
+            Self::Other { tokens } => tokens,
+        };
+        let mut iter = tokens.iter().enumerate();
+        while let Some((i, located_token)) = iter.next() {
+            if located_token.token() == &Token::Identifier(parameter_name.to_string()) {
+                let start = i;
+                let mut length = 1;
+                // Take any whitespace.
+                for (_, located_token) in iter.by_ref() {
+                    let token = located_token.token();
+                    if token.is_whitespace() || token.is_comment() || matches!(token, Token::Equals)
+                    {
+                        length += 1;
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                // TODO: this is incorrect as params might have multiple values.
+                length += 1;
+                return Some((start, length));
+            }
+        }
+        None
     }
 }
 

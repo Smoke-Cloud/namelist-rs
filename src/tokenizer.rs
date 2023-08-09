@@ -74,6 +74,14 @@ impl Token {
             Self::Comment(_) => true,
         }
     }
+
+    pub fn is_whitespace(&self) -> bool {
+        matches!(self, Self::Whitespace(_) | Self::NewLine)
+    }
+
+    pub fn is_comment(&self) -> bool {
+        matches!(self, Self::Comment(_))
+    }
 }
 
 impl Display for Token {
