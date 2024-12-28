@@ -3,6 +3,11 @@ name = "namelist"
 version = "0.3.0"
 authors = ["Jake O'Shannessy <joshannessy@smokecloud.com>"]
 edition = "2018"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/Smoke-Cloud/namelist-rs"
+repository = "https://github.com/Smoke-Cloud/namelist-rs"
+readme = "README.md"
+exclude = [".github"]
 
 [dependencies]
 utf-8 = "0.7"
