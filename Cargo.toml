@@ -8,6 +8,7 @@ homepage = "https://github.com/Smoke-Cloud/namelist-rs"
 repository = "https://github.com/Smoke-Cloud/namelist-rs"
 readme = "README.md"
 exclude = [".github"]
+description = "A parser for Fortan-style namelist files"
 
 [dependencies]
 utf-8 = "0.7"
